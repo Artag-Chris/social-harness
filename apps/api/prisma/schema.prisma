@@ -1,0 +1,507 @@
+// Social Harness — esquema de datos
+// postgres:16 + pgvector (la extensión la asegura prisma/ensure-database.ts
+// ANTES de correr `migrate deploy`; ver docs/adr-001-arquitectura.md).
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enums del dominio
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Redes que cubre el coach en v1. El front agrupa/etiqueta por acá.
+enum Platform {
+  INSTAGRAM
+  TIKTOK
+  YOUTUBE
+}
+
+/// Tipo de fuente de tendencias = adaptador del conector que la atiende
+/// (modules/connectors). Sumar una fuente nueva de un tipo existente NO toca
+/// código; sumar un tipo nuevo SÍ implica registrar su adaptador.
+enum SourceKind {
+  YOUTUBE_API
+  GOOGLE_TRENDS
+  RSS
+  PUBLIC_WEB
+  MANUAL
+}
+
+/// Qué es la señal. `INSPIRATION` es lo que entra pegado a mano (competencia o
+/// un post que funcionó): alimenta el mismo pipeline que lo recolectado.
+enum SignalKind {
+  TREND
+  VIDEO
+  POST
+  NEWS
+  INSPIRATION
+}
+
+/// Estado de la señal DENTRO del pipeline (no confundir con el estado de cada
+/// perfil sobre esa señal, que vive en ProfileSignal).
+enum SignalStatus {
+  RAW
+  ANALYZED
+}
+
+enum ProfileSignalStatus {
+  NEW
+  SEEN
+  USED
+  DISCARDED
+}
+
+enum IdeaFormat {
+  REEL
+  SHORT
+  CAROUSEL
+  POST
+  STORY
+}
+
+/// IDEA → APPROVED → SCHEDULED → PUBLISHED (o DISCARDED). El paso a PUBLISHED
+/// lo hace SIEMPRE el humano ("ya publiqué"): el harness no publica (ADR-003).
+enum IdeaStatus {
+  IDEA
+  APPROVED
+  SCHEDULED
+  PUBLISHED
+  DISCARDED
+}
+
+enum ObjectiveMetric {
+  FOLLOWERS
+  ENGAGEMENT_RATE
+  REACH
+  POSTS_PER_WEEK
+  LEADS
+}
+
+enum ObjectiveStatus {
+  ACTIVE
+  ACHIEVED
+  MISSED
+}
+
+/// De dónde salió el número. Hoy todo es MANUAL; `API` es el lugar donde
+/// entrarían los conectores oficiales (ver docs/adr-002).
+enum MetricSource {
+  MANUAL
+  API
+}
+
+enum CollectionRunStatus {
+  RUNNING
+  OK
+  FAILED
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Perfil = la marca/persona a hacer crecer. Raíz de la propiedad: todo lo demás
+// cuelga de acá, así que el aislamiento por usuario se filtra por relación.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Profile {
+  id       String   @id @default(cuid())
+  name     String
+  /// Temas del nicho: es la señal más importante para juzgar relevancia.
+  niche    String[] @default([])
+  /// A quién le habla (para que las ideas no sean genéricas).
+  audience String?
+  /// Tono/voz con el que escribe (se inyecta en los prompts).
+  voice    String?
+  language String   @default("es")
+  /// Cadencia de recolección de SUS fuentes, en HORAS (la UI usa horas: es lo
+  /// que el usuario entiende). null = usa el valor por defecto de la fuente.
+  scheduleHours   Int?
+  nextRunAt       DateTime?
+  /// Cuántas ideas nuevas por corrida (freno de costo).
+  ideasPerWeek    Int      @default(3)
+  /// Freno maestro del único automatismo con IA. false = las ideas se piden
+  /// desde el dashboard. El análisis de señales sigue igual.
+  autoIdeasEnabled Boolean @default(true)
+
+  /// Identidad de atiende (claims `sub` / `businessId` del JWT compartido).
+  /// Se sellan al crear el perfil: el aislamiento existe desde el día 1.
+  ownerId    String?
+  businessId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts        SocialAccount[]
+  objectives      Objective[]
+  sources         ProfileSource[]
+  profileSignals  ProfileSignal[]
+  ideas           ContentIdea[]
+  metricSnapshots MetricSnapshot[]
+  reports         PerformanceReport[]
+  coachRuns       CoachRun[]
+  notifications   Notification[]
+
+  @@index([ownerId])
+  @@index([businessId])
+  @@index([nextRunAt])
+}
+
+/// Una cuenta social del perfil (Instagram/TikTok/YouTube). Un perfil puede
+/// tener varias cuentas y de distintas redes.
+model SocialAccount {
+  id        String   @id @default(cuid())
+  profileId String
+  platform  Platform
+  handle    String
+  url       String?
+  /// Punto de partida declarado (para calcular crecimiento relativo).
+  followersBaseline Int?
+  notes             String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile         Profile          @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  metricSnapshots MetricSnapshot[]
+
+  @@unique([profileId, platform, handle])
+  @@index([profileId])
+}
+
+/// Objetivo medible del perfil: es lo que el coach debe ayudar a cumplir.
+model Objective {
+  id          String          @id @default(cuid())
+  profileId   String
+  metric      ObjectiveMetric
+  targetValue Float
+  currentValue Float?
+  dueDate     DateTime?
+  status      ObjectiveStatus @default(ACTIVE)
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, status])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fuentes de tendencia: catálogo REUTILIZABLE. La URL/config se guarda UNA vez
+// y cada perfil selecciona de las ya guardadas (N:M vía ProfileSource).
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Source {
+  id   String     @id @default(cuid())
+  name String
+  kind SourceKind
+  /// Config del conector según `kind`: { keywords[], region, channelId,
+  /// feedUrl, listUrl, recipe{selectors,limits}, maxItems }.
+  params Json
+  /// Politeness/límites: { maxPages, delayMs, timeoutMs, respectRobots }.
+  limits Json @default("{}")
+
+  enabled Boolean @default(true)
+  /// Cadencia por defecto de la fuente (el perfil puede sobrescribirla).
+  intervalHours Int      @default(24)
+  lastRunAt     DateTime?
+  nextRunAt     DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  selections ProfileSource[]
+  signals    Signal[]
+  runs       CollectionRun[]
+
+  @@index([enabled, nextRunAt])
+  @@index([kind])
+}
+
+/// Selección perfil ↔ fuente (N:M) con cadencia propia opcional.
+model ProfileSource {
+  id        String  @id @default(cuid())
+  profileId String
+  sourceId  String
+  enabled   Boolean @default(true)
+  /// null → usa la cadencia del perfil (Profile.scheduleHours) o la de la fuente.
+  intervalHours Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  source  Source  @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, sourceId])
+  @@index([sourceId, enabled])
+}
+
+/// Corrida de una fuente: auditoría de qué trajo y qué falló. Idempotencia por
+/// `requestId` (un reintento del mismo job no crea dos corridas).
+model CollectionRun {
+  id        String               @id @default(cuid())
+  sourceId  String
+  requestId String               @unique
+  status    CollectionRunStatus  @default(RUNNING)
+  startedAt DateTime             @default(now())
+  finishedAt DateTime?
+  itemsFound Int                 @default(0)
+  itemsNew   Int                 @default(0)
+  error      String?
+
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Señal: una tendencia, un video, un post o una inspiración pegada a mano.
+// Es la unidad que se analiza y de la que salen las ideas.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Signal {
+  id        String     @id @default(cuid())
+  sourceId  String
+  kind      SignalKind
+  /// sha256(URL canónica) o sha256('manual:'+texto): la idempotencia real.
+  fingerprint String @unique
+  canonicalUrl String?
+  url          String
+  title        String
+  author       String?
+  platform     Platform?
+  publishedAt  DateTime?
+  region       String?
+  keywords     String[] @default([])
+  /// Métricas que trajo la fuente: { views, likes, comments, shares, score }.
+  metrics Json @default("{}")
+  /// Item crudo tal como vino: permite reprocesar sin volver a pedirlo.
+  raw      Json @default("{}")
+
+  status SignalStatus @default(RAW)
+
+  /// Dedup de contenido: el mismo tema publicado en otra fuente se MARCA y se
+  /// oculta (nunca se borra). El botón "No es duplicado" lo desmarca.
+  dupKey        String?
+  duplicateOfId String?
+  dupDismissed  Boolean @default(false)
+
+  /// Embedding de title+resumen para similitud y agrupamiento de tendencias.
+  embedding Unsupported("vector(1536)")?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  source         Source          @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  profileSignals ProfileSignal[]
+  ideas          IdeaSignal[]
+  duplicateOf    Signal?         @relation("SignalDuplicates", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates     Signal[]        @relation("SignalDuplicates")
+
+  @@index([sourceId])
+  @@index([platform, publishedAt])
+  @@index([canonicalUrl])
+  @@index([dupKey])
+  @@index([duplicateOfId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+/// Relevancia de una señal PARA UN PERFIL. Es N:M a propósito: la misma
+/// tendencia puede ser oro para un perfil y ruido para otro.
+model ProfileSignal {
+  id             String              @id @default(cuid())
+  signalId       String
+  profileId      String
+  relevanceScore Int                 @default(0)
+  /// Por qué es (o no) relevante: lo que hace la sugerencia explicable.
+  reasons        Json                @default("[]")
+  status         ProfileSignalStatus @default(NEW)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  signal  Signal  @relation(fields: [signalId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([signalId, profileId])
+  @@index([profileId, relevanceScore])
+  @@index([profileId, status])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sugerencias: ideas (entradas de calendario) y su borrador opcional.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model ContentIdea {
+  id        String   @id @default(cuid())
+  profileId String
+  platform  Platform
+  format    IdeaFormat
+
+  title    String
+  hook     String
+  angle    String
+  /// "Por qué ahora": atado a las señales que la dispararon. Sin esto la idea
+  /// es una opinión; con esto es una sugerencia defendible.
+  whyNow   String
+  hashtags String[] @default([])
+  /// Mejores horarios sugeridos: [{ day, hour, reason }].
+  bestTimes Json @default("[]")
+
+  status       IdeaStatus @default(IDEA)
+  scheduledFor DateTime?
+  publishedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  drafts  ContentDraft[]
+  signals IdeaSignal[]
+
+  @@index([profileId, scheduledFor])
+  @@index([profileId, status])
+}
+
+/// Trazabilidad idea ↔ señal (N:M). Es tabla y no un `String[]` de ids porque:
+///  - la FK garantiza que no queden ids colgando si se borra una señal;
+///  - se puede consultar al revés y con índice ("qué ideas salieron de esta
+///    tendencia"), que es justo lo que hace defendible una sugerencia.
+model IdeaSignal {
+  id       String @id @default(cuid())
+  ideaId   String
+  signalId String
+  /// Por qué ESTA señal sostiene ESTA idea (lo que la vuelve explicable).
+  contribution String?
+
+  createdAt DateTime @default(now())
+
+  idea   ContentIdea @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  signal Signal      @relation(fields: [signalId], references: [id], onDelete: Cascade)
+
+  @@unique([ideaId, signalId])
+  @@index([signalId])
+}
+
+/// Borrador de la pieza. Se genera SOLO a demanda (POST /ideas/:id/draft):
+/// nunca desde el pipeline, por costo y porque el humano decide (ADR-001/003).
+model ContentDraft {
+  id      String @id @default(cuid())
+  ideaId  String
+  /// { caption, script, hookVariants[], cta, notes }
+  content Json
+  language String @default("es")
+  /// true = el usuario lo editó: la IA no lo pisa al regenerar.
+  editedByUser Boolean @default(false)
+  version      Int     @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  idea ContentIdea @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+
+  @@index([ideaId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Medición: métricas de las cuentas (hoy a mano) y el reporte de rendimiento.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model MetricSnapshot {
+  id        String @id @default(cuid())
+  socialAccountId String
+  /// Denormalizado para poder filtrar/agregar por perfil sin JOIN.
+  profileId String
+
+  capturedAt DateTime    @default(now())
+  source     MetricSource @default(MANUAL)
+
+  followers      Int?
+  reach          Int?
+  impressions    Int?
+  engagementRate Float?
+  likes          Int?
+  comments       Int?
+  shares         Int?
+  saves          Int?
+  /// Lo que vino (CSV o JSON): permite reprocesar sin volver a pedirlo.
+  raw            Json @default("{}")
+
+  createdAt DateTime @default(now())
+
+  account SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  profile Profile       @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([socialAccountId, capturedAt])
+  @@index([profileId, capturedAt])
+}
+
+/// Resultado del análisis de rendimiento: qué funcionó, qué no y qué ajustar.
+model PerformanceReport {
+  id          String   @id @default(cuid())
+  profileId   String
+  periodStart DateTime
+  periodEnd   DateTime
+  summary     String
+  whatWorked  Json     @default("[]")
+  whatDidnt   Json     @default("[]")
+  adjustments Json     @default("[]")
+
+  createdAt DateTime @default(now())
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Operación: bandeja de avisos y control de gasto de IA.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Bandeja del dashboard (adaptador `dashboard` del NotificationPort).
+/// profileId desde el inicio: los avisos son por perfil, no globales.
+model Notification {
+  id        String    @id @default(cuid())
+  profileId String?
+  type      String
+  title     String
+  body      String
+  payload   Json      @default("{}")
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  profile Profile? @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, createdAt])
+  @@index([readAt])
+}
+
+/// Una llamada de IA (o un lote). Es el medidor de gasto real del harness:
+/// sin esto no se puede responder "¿cuánto me está costando?".
+model CoachRun {
+  id        String @id @default(cuid())
+  profileId String?
+  job       String
+  model     String?
+  tokensIn  Int    @default(0)
+  tokensOut Int    @default(0)
+  costUsd   Float  @default(0)
+  latencyMs Int    @default(0)
+
+  createdAt DateTime @default(now())
+
+  profile Profile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
+  @@index([profileId, createdAt])
+  @@index([job, createdAt])
+}

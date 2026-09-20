@@ -1,0 +1,75 @@
+# social-harness - Docker Compose (producción/server)
+#
+# SOLO lo necesario para correr el proyecto. NO crea base de datos ni redis:
+# en el server ya corren (misma red microservices-network que atiende):
+#   - Redis compartida  → hostname "redis:6379"
+#   - PostgreSQL        → el MISMO de atiende ("atiende-postgres", imagen
+#                         pgvector/pgvector:pg16, usuario atiende) con una base
+#                         "socialharness" propia que se crea SOLA en el boot.
+#
+# Uso en el server:
+#   docker compose up -d          # levanta el api
+#   docker compose logs -f
+#   docker compose down
+#
+# En dev local (necesita postgres+redis):
+#   docker compose -f docker-compose.yml -f docker-compose.infra.yml up -d
+#   docker compose -f docker-compose.yml -f docker-compose.infra.yml \
+#     --profile fixture up -d     # + fixture E2E (RSS/HTML falsos)
+
+services:
+  # ─────────────────────────────────────────
+  # API / harness (NestJS) — scheduler + workers BullMQ en el mismo proceso
+  # ─────────────────────────────────────────
+  api:
+    build:
+      context: ./apps/api
+      target: development
+    container_name: socialharness-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${API_PORT:-3200}
+      # Postgres EXTERNO: el de atiende (pgvector). Override en .env si cambia.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-atiende}:${POSTGRES_PASSWORD:-atiende_dev}@${DATABASE_HOST:-atiende-postgres}:${DATABASE_PORT:-5432}/${POSTGRES_DB:-socialharness}?schema=public
+      # Redis compartida (ya corriendo como "redis" en la red).
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      QUEUE_PREFIX: ${QUEUE_PREFIX:-socialharness}
+      # Las fuentes E2E solo se siembran con FIXTURE_ENABLED=true (dev local).
+      FIXTURE_BASE_URL: ${FIXTURE_BASE_URL:-http://socialharness-fixture}
+      FIXTURE_ENABLED: ${FIXTURE_ENABLED:-false}
+    volumes:
+      - ./apps/api/src:/app/src
+      - ./apps/api/prisma:/app/prisma
+      # Scripts de diagnóstico (`npm run llm:check`): montados igual que src para
+      # poder editarlos sin reconstruir la imagen.
+      - ./apps/api/scripts:/app/scripts
+    ports:
+      - "${API_PORT:-3200}:3200"
+    networks:
+      - microservices-network
+
+  # ─────────────────────────────────────────
+  # Fixture E2E (SOLO dev, profile "fixture"): RSS + página HTML con tendencias
+  # falsas para probar los conectores RSS y PUBLIC_WEB sin red ni ToS.
+  # No se levanta con `docker compose up -d`.
+  # ─────────────────────────────────────────
+  fixture:
+    image: nginx:alpine
+    container_name: socialharness-fixture
+    profiles: ["fixture"]
+    volumes:
+      - ./fixtures/www:/usr/share/nginx/html:ro
+    ports:
+      - "${FIXTURE_PORT:-8091}:80"
+    networks:
+      - microservices-network
+
+networks:
+  microservices-network:
+    external: true

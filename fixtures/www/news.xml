@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Noticias del nicho (fixture E2E)</title>
+    <link>http://socialharness-fixture/news.xml</link>
+    <description>Segundo feed: mismo enlace con tracking distinto para probar el dedup.</description>
+    <language>es</language>
+
+    <item>
+      <title>El formato de 3 actos para videos cortos que están funcionando</title>
+      <link>https://example.com/formato-3-actos?utm_source=news&amp;utm_campaign=lanzamiento</link>
+      <author>redaccion@example.com (Redacción)</author>
+      <pubDate>Fri, 18 Sep 2026 16:20:00 GMT</pubDate>
+      <description>Misma nota publicada en otro medio; debe deduplicarse contra feed.xml.</description>
+    </item>
+
+    <item>
+      <title>Las marcas personales que más crecieron este mes en Latinoamérica</title>
+      <link>https://example.com/marcas-personales-crecimiento-latam</link>
+      <author>redaccion@example.com (Redacción)</author>
+      <pubDate>Fri, 18 Sep 2026 08:00:00 GMT</pubDate>
+      <description>Ranking de crecimiento de audiencia en Instagram, TikTok y YouTube.</description>
+    </item>
+
+    <item>
+      <title>Comentarios como fuente de ideas: el flujo que usan los creadores top</title>
+      <link>https://example.com/comentarios-como-fuente-de-ideas</link>
+      <author>redaccion@example.com (Redacción)</author>
+      <pubDate>Thu, 17 Sep 2026 20:45:00 GMT</pubDate>
+      <description>Convertir las preguntas recurrentes de la audiencia en el próximo calendario.</description>
+    </item>
+  </channel>
+</rss>

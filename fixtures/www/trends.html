@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Tendencias del nicho (fixture E2E)</title>
+  </head>
+  <body>
+    <!--
+      Fixture para el conector PUBLIC_WEB (receta CSS).
+      Estructura pensada para una receta de ejemplo:
+        selectors = {
+          item: ".trend-card",
+          title: ".trend-card__title",
+          url: ".trend-card__link",      // se lee el href
+          author: ".trend-card__author",
+          metrics: ".trend-card__views", // se parsea el número
+          keywords: ".trend-card__tag"
+        }
+      Los contenedores están repetidos A PROPÓSITO (es lo que la heurística del
+      probe usa para votar el selector `item`).
+    -->
+    <main id="trends">
+      <article class="trend-card">
+        <h2 class="trend-card__title">Cómo estructurar un reel que retenga 8 segundos</h2>
+        <a class="trend-card__link" href="https://example.com/reel-hook-estructura">Ver</a>
+        <span class="trend-card__author">@creador_uno</span>
+        <span class="trend-card__views">1.2M</span>
+        <span class="trend-card__tag">reels</span>
+        <span class="trend-card__tag">hook</span>
+        <time class="trend-card__date" datetime="2026-09-18">18 sep 2026</time>
+      </article>
+
+      <article class="trend-card">
+        <h2 class="trend-card__title">Shorts de 45 segundos: el formato que más creció</h2>
+        <a class="trend-card__link" href="https://example.com/shorts-45-segundos">Ver</a>
+        <span class="trend-card__author">@creador_dos</span>
+        <span class="trend-card__views">870K</span>
+        <span class="trend-card__tag">shorts</span>
+        <span class="trend-card__tag">duracion</span>
+        <time class="trend-card__date" datetime="2026-09-17">17 sep 2026</time>
+      </article>
+
+      <article class="trend-card">
+        <h2 class="trend-card__title">Carruseles educativos: guardados por encima de likes</h2>
+        <a class="trend-card__link" href="https://example.com/carruseles-educativos">Ver</a>
+        <span class="trend-card__author">@creador_tres</span>
+        <span class="trend-card__views">420K</span>
+        <span class="trend-card__tag">carrusel</span>
+        <span class="trend-card__tag">guardados</span>
+        <time class="trend-card__date" datetime="2026-09-15">15 sep 2026</time>
+      </article>
+
+      <article class="trend-card">
+        <h2 class="trend-card__title">Publicar a las 6pm vs 9pm: la prueba con 40 cuentas</h2>
+        <a class="trend-card__link" href="https://example.com/horarios-publicacion">Ver</a>
+        <span class="trend-card__author">@creador_cuatro</span>
+        <span class="trend-card__views">310K</span>
+        <span class="trend-card__tag">horarios</span>
+        <span class="trend-card__tag">alcance</span>
+        <time class="trend-card__date" datetime="2026-09-14">14 sep 2026</time>
+      </article>
+
+      <article class="trend-card">
+        <h2 class="trend-card__title">Texto en pantalla: qué dicen los datos de retención</h2>
+        <a class="trend-card__link" href="https://example.com/texto-en-pantalla">Ver</a>
+        <span class="trend-card__author">@creador_cinco</span>
+        <span class="trend-card__views">265K</span>
+        <span class="trend-card__tag">subtitulos</span>
+        <span class="trend-card__tag">retencion</span>
+        <time class="trend-card__date" datetime="2026-09-12">12 sep 2026</time>
+      </article>
+    </main>
+  </body>
+</html>

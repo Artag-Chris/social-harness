@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fixture para el conector RSS (feed de nicho). Los items están repetidos entre
+  feed.xml y news.xml para probar el dedup por URL canónica: el mismo enlace con
+  ?utm_source distinto debe caer en la MISMA señal (fingerprint igual).
+-->
+<rss version="2.0">
+  <channel>
+    <title>Nicho - señales (fixture E2E)</title>
+    <link>http://socialharness-fixture/feed.xml</link>
+    <description>Feed de prueba con tendencias del nicho.</description>
+    <language>es</language>
+
+    <item>
+      <title>El formato de 3 actos para videos cortos que están funcionando</title>
+      <link>https://example.com/formato-3-actos</link>
+      <author>equipo@example.com (Equipo)</author>
+      <pubDate>Fri, 18 Sep 2026 14:00:00 GMT</pubDate>
+      <description>Analizamos 120 videos cortos: los que usan estructura de 3 actos retienen más.</description>
+    </item>
+
+    <item>
+      <title>Por qué los hooks con pregunta pierden contra los hooks con número</title>
+      <link>https://example.com/hooks-pregunta-vs-numero?utm_source=feed&amp;utm_medium=rss</link>
+      <author>equipo@example.com (Equipo)</author>
+      <pubDate>Thu, 17 Sep 2026 09:30:00 GMT</pubDate>
+      <description>Comparativa A/B de 60 primeros segundos en Instagram y TikTok.</description>
+    </item>
+
+    <item>
+      <title>Reutilizar un video largo en 5 piezas cortas: flujo de trabajo</title>
+      <link>https://example.com/reutilizar-video-largo</link>
+      <author>equipo@example.com (Equipo)</author>
+      <pubDate>Wed, 16 Sep 2026 18:10:00 GMT</pubDate>
+      <description>Cómo convertir una grabación de 20 minutos en contenido para toda la semana.</description>
+    </item>
+
+    <item>
+      <title>Hashtags en 2026: menos etiquetas, más contexto</title>
+      <link>https://example.com/hashtags-2026</link>
+      <author>equipo@example.com (Equipo)</author>
+      <pubDate>Tue, 15 Sep 2026 11:00:00 GMT</pubDate>
+      <description>Los hashtags dejaron de ser una lista y pasaron a ser señal de tema.</description>
+    </item>
+  </channel>
+</rss>

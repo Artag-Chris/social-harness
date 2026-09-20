@@ -1,0 +1,64 @@
+# Infraestructura LOCAL de social-harness (postgres propio para dev).
+# En el server NO se usa: ahí ya corren la Redis compartida y el Postgres de atiende.
+#
+# Uso:
+#   docker compose -f docker-compose.infra.yml up -d
+#   docker compose -f docker-compose.infra.yml down        # apaga solo la infra
+#
+# ── REUTILIZA la infra compartida que ya corre en la máquina/server ──────────
+# Redis: NO se levanta acá. Se usa el MISMO contenedor `redis` (redis:7-alpine)
+# de la red `microservices-network` que ya usan atiende y cv-harness, igual que
+# en el server. Si no existe, se crea una sola vez con:
+#   docker run -d --name redis --network microservices-network redis:7-alpine
+#
+# Postgres: SÍ es propio (mismo patrón que los hermanos: cada proyecto tiene su
+# postgres local, y solo en el server se comparte el de atiende). Ojo con los
+# nombres/puertos, que no choquen: atiende-postgres 5433 · cvharness-postgres
+# 5434 · socialharness-postgres 5435.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: socialharness-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: socialharness
+      POSTGRES_PASSWORD: socialharness
+      POSTGRES_DB: socialharness
+    ports:
+      - "${POSTGRES_PORT:-5435}:5432"
+    volumes:
+      - socialharness_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U socialharness -d socialharness"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - microservices-network
+
+  # Override LOCAL del servicio api (se usa con -f docker-compose.infra.yml):
+  # apunta la API al postgres local + la Redis compartida, y siembra el fixture.
+  api:
+    environment:
+      DATABASE_URL: postgresql://socialharness:socialharness@socialharness-postgres:5432/socialharness?schema=public
+      DATABASE_HOST: socialharness-postgres
+      POSTGRES_USER: socialharness
+      POSTGRES_PASSWORD: socialharness
+      POSTGRES_DB: socialharness
+      # Redis COMPARTIDA (el contenedor `redis` que ya existe en la red).
+      REDIS_URL: redis://redis:6379
+      REDIS_HOST: redis
+      FIXTURE_ENABLED: "true"
+      FIXTURE_BASE_URL: http://socialharness-fixture
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  socialharness_pgdata:
+    name: socialharness_pgdata
+
+networks:
+  microservices-network:
+    external: true

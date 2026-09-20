@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+*.log
+
+# Entorno real (gitignoreado en la raíz; el .env.example SÍ se commitea).
+.env
+.env.local
+
+# Prisma
+prisma/*.db
