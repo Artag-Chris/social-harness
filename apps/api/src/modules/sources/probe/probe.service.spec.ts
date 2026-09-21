@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { SourceKind } from '@prisma/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchPage } from './fetch-page';
+import { fetchPage } from '../../connectors/engine/fetch-page';
 import { ProbeService, looksLikeChallenge } from './probe.service';
 
 /**
@@ -9,8 +9,8 @@ import { ProbeService, looksLikeChallenge } from './probe.service';
  * diagnóstico) es el código real, que es lo que el usuario ve al verificar una
  * fuente.
  */
-vi.mock('./fetch-page', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./fetch-page')>();
+vi.mock('../../connectors/engine/fetch-page', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../connectors/engine/fetch-page')>();
   return { ...actual, fetchPage: vi.fn() };
 });
 

@@ -31,11 +31,37 @@ Coach de redes sociales: recibe **perfiles** con objetivos, recolecta **señales
 | 0 | Scaffolding: repo, compose, `.env.example`, schema Prisma, `ensure-database`, seed, ADRs 001-003 + event-flow | **entregado y verificado E2E** |
 | — | Capa de IA (ADR-004) y catálogo de redes con LinkedIn (ADR-005) | **entregado y verificado** |
 | 1 | Auth (JWT de atiende) + perfiles/cuentas/objetivos + catálogo de fuentes con `probe` + `GET /config` | **entregado y verificado E2E** (ver `docs/IMPLEMENTADO.md`) |
-| 2 | Conectores (`youtube`, `google-trends`, `rss`, `public-web`, `manual`) + dedup + `GET /signals` + `schedule-cycle`/`collect` | **siguiente** |
-| 3 | Análisis (prefilter + LLM batched) + ideas/calendario + notificación | pendiente |
+| 2 | Conectores (`youtube`, `google-trends`, `rss`, `public-web`, `manual`) + dedup + `GET /signals` + `schedule-cycle`/`collect` | **entregado y verificado E2E** (ver `docs/IMPLEMENTADO.md`) |
+| 3 | Análisis (prefilter + LLM batched) + ideas/calendario + notificación | **siguiente** |
 | 4 | Borradores a demanda + "ya publiqué" + métricas manuales/CSV + `PerformanceReport` + `GET /usage` | pendiente |
 | 5 | Pestaña "Social Coach" en `dashboard/` (cliente + rutas + `navItems`) | pendiente |
 | 6 | Verificación E2E final, README portafolio, git + instrucciones de deploy | parcial (README hecho) |
+
+### Fase 2 — qué quedó hecho (2026-09-21)
+
+- **Conectores** (`modules/connectors`): puerto + registro por tipo, con `RSS`, `PUBLIC_WEB`, `YOUTUBE_API`,
+  `GOOGLE_TRENDS` y `MANUAL`. Reutilizan el **motor** que ya usaba el probe (`connectors/engine/`:
+  `fetch-page`, `parse-feed`, `parse-recipe` — se movieron desde `sources/probe`, que ahora solo verifica).
+  `isConfigured` permite saltear una fuente sin credenciales en vez de fallar en cada ciclo.
+- **Scheduler** (`modules/scheduler`): BullMQ sobre la Redis compartida, ciclo repetible `schedule-cycle`,
+  `DispatchService` (unidad de trabajo = fuente; reloj = perfil; cadencia = la más exigente de sus
+  fuentes) y `CollectionService` (corrida idempotente por `requestId` + auditoría en `CollectionRun`).
+  `POST /profiles/:profileId/run` = "Buscar ahora" (202).
+- **Ingestión** (`modules/ingestion`): fingerprint por URL canónica, `dupKey` (título+autor) para marcar
+  la misma pieza con otra URL, fan-out N:M a los perfiles suscritos (un duplicado no se reparte) y
+  escritura del **embedding** con SQL crudo (columna `Unsupported`), best-effort.
+- **Señales** (`modules/signals`): listado con filtros y scoping por perfil, detalle, y el pegado manual
+  (texto sin URL → fingerprint por texto; con URL → por canónica). Fuente sintética `MANUAL` para colgar
+  lo pegado.
+- **Deps nuevas**: `@nestjs/bullmq`, `bullmq`, `ioredis`.
+- **Trampas de migración que quedaron documentadas** (costaron tiempo):
+  1. `prisma migrate dev` **siempre** agrega un `DROP INDEX` del HNSW (no puede ver ese índice). Ahora el
+     índice lo asegura el **boot** (`ensure-database`) y se limpia ese `DROP INDEX` de cada migración.
+  2. No correr `migrate reset` en paralelo con la edición de la migración (aplica la versión vieja).
+  3. Una migración de enum a texto se escribe a mano con `USING` (la generada dropea columnas).
+- Verificación: **276 tests en 31 archivos**, `tsc` limpio y la recolección ejercitada contra el stack
+  (dedup por URL canónica con datos reales, idempotencia en la segunda corrida, 11 señales con su vector,
+  llaves de Redis todas con prefijo `socialharness:`). Detalle en `docs/IMPLEMENTADO.md`.
 
 ### Fase 1 — qué quedó hecho (2026-09-21)
 

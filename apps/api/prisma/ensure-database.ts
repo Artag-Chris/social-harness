@@ -68,10 +68,32 @@ async function ensureVectorExtension(targetUrl: string): Promise<void> {
   }
 }
 
+/**
+ * El índice de similitud vive acá y NO en las migraciones.
+ *
+ * Por qué: es un índice HNSW sobre `Signal.embedding`, una columna que Prisma
+ * marcó como `Unsupported` (no la puede tipar), así que **cada `migrate dev`
+ * genera un `DROP INDEX` de este índice** y hay que acordarse de quitarlo. Al
+ * asegurarlo en el boot (idempotente, igual que la extensión) el índice se
+ * restaura solo y las migraciones no lo pueden romper.
+ */
+async function ensureVectorIndex(targetUrl: string): Promise<void> {
+  const target = new PrismaClient({ datasources: { db: { url: targetUrl } } });
+  try {
+    await target.$executeRawUnsafe(
+      'CREATE INDEX IF NOT EXISTS "Signal_embedding_hnsw_idx" ON "Signal" USING hnsw ("embedding" vector_cosine_ops)',
+    );
+    console.log('[ensure-database] índice HNSW de señales listo');
+  } finally {
+    await target.$disconnect();
+  }
+}
+
 async function main(): Promise<void> {
   const targetUrl = resolveDatabaseUrl();
   const database = await ensureDatabaseExists(targetUrl);
   await ensureVectorExtension(targetUrl);
+  await ensureVectorIndex(targetUrl);
   console.log(`[ensure-database] listo para migrar sobre "${database}"`);
 }
 

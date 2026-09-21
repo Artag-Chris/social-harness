@@ -1,5 +1,5 @@
 import Parser from 'rss-parser';
-import type { ProbeItem } from '../sources.schema';
+import type { ScrapedItem } from './scraped-item';
 
 /**
  * Lectura de un feed RSS/Atom.
@@ -21,7 +21,7 @@ const parser = new Parser({
 
 export interface ParsedFeed {
   title: string;
-  items: ProbeItem[];
+  items: ScrapedItem[];
   /** Items que vinieron sin fecha: sirven igual, pero conviene saberlo. */
   itemsWithoutDate: number;
   warnings: string[];
@@ -53,7 +53,7 @@ export async function parseFeed(body: string): Promise<ParsedFeed> {
         publishedAt,
         summary: firstString(item.contentSnippet, item.summary, item.contentEncoded)?.slice(0, 400) ?? null,
         metrics: {},
-      } satisfies ProbeItem,
+      } satisfies ScrapedItem,
     };
   });
 

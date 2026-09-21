@@ -50,6 +50,13 @@ export const SignalDraftSchema = z.object({
 
 export type SignalDraft = z.infer<typeof SignalDraftSchema>;
 
+/** Cuántos items matcheó cada selector de una receta (diagnóstico de la corrida). */
+export const SelectorDiagnosticSchema = z.object({
+  field: z.string(),
+  selector: z.string(),
+  matched: z.number().int().min(0),
+});
+
 export const ConnectorResultSchema = z.object({
   items: z.array(SignalDraftSchema),
   /**
@@ -58,6 +65,8 @@ export const ConnectorResultSchema = z.object({
    * no convierten la corrida en fallo.
    */
   warnings: z.array(z.string()).default([]),
+  /** Diagnóstico por selector (solo lo llenan los conectores con receta CSS). */
+  diagnostics: z.array(SelectorDiagnosticSchema).default([]),
 });
 
 export type ConnectorResult = z.infer<typeof ConnectorResultSchema>;

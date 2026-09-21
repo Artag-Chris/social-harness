@@ -277,8 +277,15 @@ model Signal {
   /// sha256(URL canónica) o sha256('manual:'+texto): la idempotencia real.
   fingerprint String @unique
   canonicalUrl String?
-  url          String
+  /// Puede ser null: una inspiración pegada como TEXTO no tiene URL. Ahí el
+  /// fingerprint se calcula sobre el texto (`sha256('manual:'+texto)`), así que el
+  /// dedup sigue funcionando igual.
+  url          String?
   title        String
+  /// Descripción corta que trajo la fuente (o el texto pegado). Es lo que alimenta
+  /// el embedding, el prefilter y el prompt del análisis: sin esto, una señal es
+  /// solo un título.
+  summary      String?  @db.Text
   author       String?
   /// Red de la que viene la señal, si aplica (clave del catálogo de redes).
   platform     String?

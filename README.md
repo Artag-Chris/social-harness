@@ -260,8 +260,10 @@ npm run llm:check    # proveedores de IA contra la API real (1 llamada mínima)
 
 Guard global: **Bearer con el JWT de atiende** (`sub`/`businessId`/`role`); sin login propio.
 Hoy ya están `GET /api/health`, `GET /api/platforms`, `GET /api/config`, los perfiles con sus cuentas
-y objetivos, el catálogo de fuentes con su verificación (`POST /sources/probe`) y Swagger. El resto del
-contrato, por fase:
+y objetivos, el catálogo de fuentes con su verificación (`POST /sources/probe`), la **recolección**
+(`POST /api/profiles/:id/run` y el ciclo automático cada `CRON_INTERVAL_MINUTES`), las señales con sus
+filtros (`GET /api/signals`) y el pegado manual (`POST /api/signals/from-text|from-url`), más Swagger.
+El resto del contrato, por fase:
 
 > El detalle de **qué funciona hoy y cómo probarlo** está en [`docs/IMPLEMENTADO.md`](docs/IMPLEMENTADO.md).
 
@@ -271,6 +273,7 @@ contrato, por fase:
 | Perfiles y cuentas | `GET/POST/PATCH/DELETE /profiles`, `GET /profiles/:id`, `PUT /profiles/:id/sources`, `PATCH /profiles/:id/schedule`, `POST /profiles/:id/run` (recolectar ahora), `POST /profiles/:id/ideas` (ideas a demanda), `…/accounts`, `…/objectives` |
 | Fuentes | `GET/POST/PATCH/DELETE /sources`, `GET /sources/templates`, `POST /sources/probe` |
 | Señales | `GET /signals` (plataforma, tipo, perfil, relevancia, fechas, duplicados), `GET /signals/:id`, `POST /signals/from-text`, `POST /signals/from-url` |
+| Recolección | `POST /profiles/:id/run` («Buscar ahora»; el ciclo automático corre solo cada `CRON_INTERVAL_MINUTES`) |
 | Ideas / calendario | `GET/POST /ideas`, `PATCH/DELETE /ideas/:id`, `POST /ideas/:id/draft`, `PATCH /drafts/:id`, `POST /ideas/:id/published` |
 | Métricas | `GET/POST /accounts/:id/metrics` (individual o CSV), `GET /profiles/:id/performance`, `POST /profiles/:id/performance/run` |
 | Operación | `GET /notifications`, `PATCH /notifications/:id/read`, `GET /usage`, `GET /config` |
@@ -297,7 +300,7 @@ social-harness/
 |---|---|---|
 | 0 | Esqueleto: repo, compose, schema, `ensure-database`, seed, ADRs y docs | **hecho** |
 | 1 | Auth con JWT de atiende + CRUD de perfiles/cuentas/objetivos + catálogo de fuentes con `probe` | **hecho** |
-| 2 | Conectores (YouTube, Google Trends, RSS, página pública, manual) + ingestión/dedup | pendiente |
+| 2 | Conectores (YouTube, Google Trends, RSS, página pública, manual) + ingestión/dedup + scheduler | **hecho** |
 | 3 | Análisis de relevancia + ideas y calendario + avisos | pendiente |
 | 4 | Borradores a demanda + registro de publicado + métricas y reporte de rendimiento | pendiente |
 | 5 | Pestaña «Social Coach» en el dashboard | pendiente |

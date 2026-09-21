@@ -34,6 +34,8 @@ export interface FetchPageOptions {
   maxBytes?: number;
   userAgent?: string;
   headers?: Record<string, string>;
+  /** Cancelación externa (p. ej. el shutdown del worker). */
+  signal?: AbortSignal;
 }
 
 export interface FetchedPage {
@@ -51,6 +53,8 @@ export async function fetchPage(url: string, options: FetchPageOptions = {}): Pr
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const forwardAbort = (): void => controller.abort();
+  options.signal?.addEventListener('abort', forwardAbort, { once: true });
 
   try {
     const response = await fetch(parsed, {
@@ -83,6 +87,7 @@ export async function fetchPage(url: string, options: FetchPageOptions = {}): Pr
     );
   } finally {
     clearTimeout(timer);
+    options.signal?.removeEventListener('abort', forwardAbort);
   }
 }
 

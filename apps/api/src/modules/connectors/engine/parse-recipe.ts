@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import type { ProbeItem } from '../sources.schema';
+import type { ScrapedItem } from './scraped-item';
 
 /**
  * Motor de recetas CSS: lee una página pública con los selectores que definió el
@@ -37,7 +37,7 @@ export interface SelectorDiagnostic {
 }
 
 export interface ParsedRecipe {
-  items: ProbeItem[];
+  items: ScrapedItem[];
   diagnostics: SelectorDiagnostic[];
   warnings: string[];
 }
@@ -60,7 +60,7 @@ export function parseRecipe(html: string, recipe: RecipeDefinition, baseUrl: str
     );
   }
 
-  const items: ProbeItem[] = [];
+  const items: ScrapedItem[] = [];
   const total = Math.min(containers.length, MAX_ITEMS);
 
   // Se itera con índice y `eq()` (en vez de `each`) para quedarse con el mismo

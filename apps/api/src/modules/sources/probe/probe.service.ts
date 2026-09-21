@@ -3,10 +3,15 @@ import { SourceKind } from '@prisma/client';
 import { z } from 'zod';
 import { summarizeZodIssues } from '../../../common/zod-issues';
 import { env } from '../../../config/env';
-import { parseParams, type ProbeInput, type ProbeItem } from '../sources.schema';
-import { FetchError, fetchPage, type FetchedPage } from './fetch-page';
-import { parseFeed } from './parse-feed';
-import { parseRecipe, type RecipeDefinition, type SelectorDiagnostic } from './parse-recipe';
+import { FetchError, fetchPage, type FetchedPage } from '../../connectors/engine/fetch-page';
+import { parseFeed } from '../../connectors/engine/parse-feed';
+import {
+  parseRecipe,
+  type RecipeDefinition,
+  type SelectorDiagnostic,
+} from '../../connectors/engine/parse-recipe';
+import type { ScrapedItem } from '../../connectors/engine/scraped-item';
+import { parseParams, type ProbeInput } from '../sources.schema';
 
 interface RssParams {
   feedUrl: string;
@@ -37,7 +42,7 @@ export interface ProbeResult {
   /** `true` = además de responder, trajo items usables. */
   verified: boolean;
   itemsFound: number;
-  preview: ProbeItem[];
+  preview: ScrapedItem[];
   warnings: string[];
   /** Por selector: cuántos items matcheó (para depurar una receta). */
   diagnostics?: SelectorDiagnostic[];

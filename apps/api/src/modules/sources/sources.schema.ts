@@ -129,11 +129,3 @@ export type SourceInput = z.infer<typeof SourceInputSchema>;
 export type SourceUpdateInput = z.infer<typeof SourceUpdateSchema>;
 export type ProbeInput = z.infer<typeof ProbeInputSchema>;
 export type SourceLimits = z.infer<typeof SourceLimitsSchema>;
-export type ProbeItem = {
-  title: string;
-  url: string;
-  author?: string | null;
-  publishedAt?: string | null;
-  summary?: string | null;
-  metrics?: Record<string, number>;
-};

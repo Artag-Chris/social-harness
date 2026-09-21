@@ -36,6 +36,14 @@ export interface TrendConnectorPort {
   /** Nombre legible para la UI ("YouTube (API oficial)", "Feed RSS", ...). */
   readonly label: string;
   /**
+   * ¿Tiene lo que necesita para correr? (p. ej. YouTube necesita su llave).
+   *
+   * Un conector no configurado se **saltea con un aviso** en vez de fallar en
+   * cada ciclo: una fuente que siempre falla llena la bandeja de errores y tapa
+   * los problemas reales.
+   */
+  readonly isConfigured: boolean;
+  /**
    * Trae las señales. Debe:
    *  - respetar `limits` (páginas, delay, timeout, robots);
    *  - devolver avisos en `warnings` en vez de lanzar por cosas no fatales;
