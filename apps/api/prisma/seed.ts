@@ -4,7 +4,7 @@
  * por id fijo, así que no duplica nada.
  */
 import 'dotenv/config';
-import { ObjectiveMetric, Platform, Prisma, PrismaClient, SourceKind } from '@prisma/client';
+import { ObjectiveMetric, Prisma, PrismaClient, SourceKind } from '@prisma/client';
 import { env } from '../src/config/env';
 import { DEMO_PROFILE } from './seed/profiles.data';
 import { fixtureSources } from './seed/sources.data';
@@ -40,7 +40,8 @@ async function seedDemoProfile(): Promise<string> {
   for (const account of DEMO_PROFILE.accounts) {
     const data = {
       profileId: DEMO_PROFILE.id,
-      platform: account.platform as Platform,
+      // Texto validado por el catálogo de redes (no un enum de la base).
+      platform: account.platform,
       handle: account.handle,
       url: account.url,
       followersBaseline: account.followersBaseline,

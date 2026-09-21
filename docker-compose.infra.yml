@@ -1,9 +1,13 @@
 # Infraestructura LOCAL de social-harness (postgres propio para dev).
 # En el server NO se usa: ahí ya corren la Redis compartida y el Postgres de atiende.
 #
-# Uso:
-#   docker compose -f docker-compose.infra.yml up -d
-#   docker compose -f docker-compose.infra.yml down        # apaga solo la infra
+# ⚠️ Este archivo NO se puede usar SOLO: el bloque `api` de abajo es un OVERRIDE
+# del servicio definido en docker-compose.yml (no tiene build propio), así que
+# compose lo rechaza si se pasa el archivo suelto. Siempre se usa combinado:
+#
+#   Levantar solo el postgres:   npm run docker:infra:up   →  up -d postgres
+#   Stack completo:              npm run docker:up:local
+#   Apagar:                      npm run docker:infra:down
 #
 # ── REUTILIZA la infra compartida que ya corre en la máquina/server ──────────
 # Redis: NO se levanta acá. Se usa el MISMO contenedor `redis` (redis:7-alpine)

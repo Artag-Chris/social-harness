@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { Platform, SignalKind } from '@prisma/client';
+import { SignalKind } from '@prisma/client';
+import { PlatformKeySchema } from '../platforms/platforms.schema';
 
 /**
  * Contrato de salida de TODOS los conectores.
@@ -27,7 +28,12 @@ export const SignalDraftSchema = z.object({
     }),
   title: z.string().min(1),
   author: z.string().nullish(),
-  platform: z.nativeEnum(Platform).nullish(),
+  /**
+   * Red de la que viene la señal. Se valida contra el catálogo de redes
+   * (`modules/platforms`), no contra un enum de la base: sumar una red no debe
+   * obligar a una migración.
+   */
+  platform: PlatformKeySchema.nullish(),
   publishedAt: z.coerce.date().nullish(),
   region: z.string().nullish(),
   keywords: z.array(z.string()).default([]),

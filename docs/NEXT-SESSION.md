@@ -57,6 +57,37 @@ Coach de redes sociales: recibe **perfiles** con objetivos, recolecta **señales
   (timeout, reintentos, modo JSON con reintento si el modelo no lo soporta, validación con Zod),
   router con respaldo, tabla de precios con override por `.env`, y `npm run llm:check`. Ver
   `docs/adr-004-proveedores-de-ia.md`.
+- **Redes y formatos como catálogo** (`modules/platforms`): LinkedIn sumada, `GET /platforms` para que
+  la UI no hardcodee nada, validación red ↔ formato, y `Platform`/`IdeaFormat` convertidos de enum de
+  Postgres a texto validado (agregar o quitar una red ya no es una migración). Ver
+  `docs/adr-005-redes-y-formatos-como-catalogo.md`.
+
+### LinkedIn y el catálogo de redes — verificado (2026-09-21)
+
+- **Migración sin pérdida de datos**: había 3 cuentas (`INSTAGRAM, TIKTOK, YOUTUBE`); después de
+  `migrate deploy` siguen las 3 con sus valores, las columnas quedaron en `text` y **los 3 índices
+  siguen ahí** (incluido el HNSW, que el SQL generado por Prisma se llevaba).
+  ⚠️ El SQL de Prisma para este cambio **dropeaba las columnas**: hubo que escribirlo a mano con
+  `USING "col"::text`. Si hay que tocar tipos de enum, revisar el SQL antes de aplicarlo.
+- **Seed con 4 cuentas** (`INSTAGRAM, LINKEDIN, TIKTOK, YOUTUBE`).
+- **`GET /platforms`** → las 4 redes con formatos y detalle:
+  `LinkedIn → POST, CAROUSEL, VIDEO, ARTICLE, POLL` (por defecto POST y CAROUSEL), con
+  `scrapingAllowed: false` y `trendsStrategy: 'manual'`.
+- `npm run check` → **144 tests en 13 archivos** + `tsc` limpio.
+- **Bug encontrado por el E2E**: el contenedor tenía el **cliente Prisma viejo** (la imagen lo genera
+  al construir y en dev el schema se monta desde el host) → el seed fallaba *dentro* de Docker aunque
+  en el host pasara. Se arregló agregando `npx prisma generate` al CMD del boot del Dockerfile.
+- **Bug de los scripts**: `npm run docker:infra:up` estaba roto (el archivo de infra solo no valida
+  porque su bloque `api` es un override). Ahora los scripts pasan siempre los dos archivos y arrancan
+  o paran solo `postgres`.
+
+### Para sumar o quitar una red (procedimiento corto)
+
+1. `PLATFORM_KEYS` + `PLATFORMS` en `apps/api/src/modules/platforms/platforms.catalog.ts` (y sus
+   formatos en `FORMAT_KEYS`/`FORMATS` si trae nuevos). **No hay migración.**
+2. `GET /platforms` y la UI (que se arma del catálogo) lo toman solos.
+3. Por perfil: agregar una red = una fila en `SocialAccount`; quitarla = borrarla (los endpoints
+   `…/accounts` son de la fase 1).
 
 ### Capa de IA — verificado contra las APIs reales (2026-09-20)
 

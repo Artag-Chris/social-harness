@@ -13,9 +13,14 @@ RUN npm install
 COPY . .
 RUN npx prisma generate
 EXPOSE 3200
-# En cada boot: asegura la base (+ extensión pgvector) + migraciones + seed
-# idempotente + hot-reload. No requiere aprovisionamiento manual en el server.
-CMD ["sh", "-c", "npx ts-node prisma/ensure-database.ts && npx prisma migrate deploy && npx ts-node prisma/seed.ts && npm run start:dev"]
+# En cada boot: asegura la base (+ extensión pgvector), REGENERA el cliente
+# Prisma, aplica migraciones, corre el seed idempotente y arranca con hot-reload.
+#
+# `prisma generate` va acá a propósito: en dev el schema se monta desde el host,
+# así que el cliente que quedó dentro de la imagen se queda viejo apenas cambia
+# el schema — y el síntoma es un error de tipos al correr el seed, no algo obvio.
+# Regenerarlo cuesta segundos y elimina ese pie de banco.
+CMD ["sh", "-c", "npx ts-node prisma/ensure-database.ts && npx prisma generate && npx prisma migrate deploy && npx ts-node prisma/seed.ts && npm run start:dev"]
 
 FROM base AS builder
 ENV NODE_ENV=development

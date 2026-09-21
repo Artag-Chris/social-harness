@@ -40,8 +40,14 @@ describe('SignalDraftSchema', () => {
   });
 
   it('rechaza una plataforma o un kind inexistente', () => {
-    expect(() => SignalDraftSchema.parse({ ...minimal, platform: 'LINKEDIN' })).toThrow();
+    expect(() => SignalDraftSchema.parse({ ...minimal, platform: 'MYSPACE' })).toThrow();
     expect(() => SignalDraftSchema.parse({ ...minimal, kind: 'CUALQUIERA' })).toThrow();
+  });
+
+  it('acepta LinkedIn (la red del catálogo, sin tocar el schema)', () => {
+    // Antes era un enum de Prisma: sumarla era una migración. Ahora el catálogo
+    // manda y el conector la acepta sin cambios.
+    expect(SignalDraftSchema.parse({ ...minimal, platform: 'LINKEDIN' }).platform).toBe('LINKEDIN');
   });
 
   it('rechaza métricas que no son números', () => {

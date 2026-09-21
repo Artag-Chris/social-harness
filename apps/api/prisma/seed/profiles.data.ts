@@ -45,6 +45,17 @@ export const DEMO_PROFILE = {
       followersBaseline: 0,
       notes: 'Formato largo + shorts derivados.',
     },
+    {
+      // Sumar LinkedIn al perfil fue exactamente esto: una entrada más. No hizo
+      // falta migración, ni tocar el pipeline, ni el front (que se arma desde
+      // `GET /platforms`).
+      id: 'seed_account_linkedin',
+      platform: 'LINKEDIN',
+      handle: '/in/mimarca',
+      url: 'https://www.linkedin.com/in/mimarca',
+      followersBaseline: 0,
+      notes: 'Red profesional: texto de una idea y documentos PDF (carrusel). Sin scraping.',
+    },
   ],
   objectives: [
     {

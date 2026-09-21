@@ -1,6 +1,6 @@
 # Social Harness — coach de redes sociales con IA
 
-Harness **event-driven** que ayuda a crecer perfiles en **Instagram, TikTok y YouTube**:
+Harness **event-driven** que ayuda a crecer perfiles en **Instagram, TikTok, YouTube y LinkedIn**:
 recolecta **señales de tendencia**, las evalúa contra los objetivos de cada perfil y devuelve
 **sugerencias** — ideas, calendario, formato/timing/hashtags y borradores — todo dentro del
 dashboard. **La IA nunca publica: tú decides y publicas.**
@@ -123,12 +123,14 @@ El detalle de cada etapa (colas, gates de costo, puntos de falla y recuperación
 | **Multiusuario desde el día 1** | El perfil sella `ownerId`/`businessId` del JWT de atiende; todo lo demás se filtra por relación. (En cv-harness esto quedó documentado y sin implementar.) |
 | **La IA detrás de un puerto, con adaptador por proveedor** | El pipeline pide `json()`/`chat()` a un puerto y nunca nombra a DeepSeek. Hay respaldo automático, y `mock` devuelve `null` en vez de datos inventados para que "sin llaves" no se confunda con "funcionando". |
 | **Nada se publica automáticamente** | No hay integración de publicación en v1; el diseño del `PublishPort` está documentado y apagado a propósito ([ADR-003](docs/adr-003-notificaciones-y-publicacion.md)). |
+| **Redes y formatos como catálogo, no como enum de la base** | Agregar o quitar una red es una entrada en `modules/platforms/platforms.catalog.ts` (y borrar/crear la cuenta del perfil), sin migración ni cambio en el front, que se arma desde `GET /platforms`. Además se valida que el formato exista **en esa red** ([ADR-005](docs/adr-005-redes-y-formatos-como-catalogo.md)). |
 | **Métricas manuales primero** | No se bloquea el MVP detrás del trámite de apps y tokens de Meta/TikTok; el contrato ya está listo para los conectores oficiales ([ADR-002](docs/adr-002-metricas-api-oficial.md)). |
 
 ADRs: [001 arquitectura](docs/adr-001-arquitectura.md) ·
 [002 métricas por API oficial](docs/adr-002-metricas-api-oficial.md) ·
 [003 notificaciones y publicación](docs/adr-003-notificaciones-y-publicacion.md) ·
-[004 proveedores de IA](docs/adr-004-proveedores-de-ia.md).
+[004 proveedores de IA](docs/adr-004-proveedores-de-ia.md) ·
+[005 redes y formatos como catálogo](docs/adr-005-redes-y-formatos-como-catalogo.md).
 
 ## Stack
 
@@ -257,10 +259,12 @@ npm run llm:check    # proveedores de IA contra la API real (1 llamada mínima)
 ## API
 
 Guard global: **Bearer con el JWT de atiende** (`sub`/`businessId`/`role`); sin login propio.
-Hoy (fase 0) están `GET /api/health` y Swagger. El resto del contrato, por fase:
+Hoy ya están `GET /api/health`, `GET /api/platforms` (catálogo de redes) y Swagger. El resto del
+contrato, por fase:
 
 | Grupo | Endpoints |
 |---|---|
+| Catálogo | `GET /platforms` (redes y formatos; la UI se arma desde acá) |
 | Perfiles y cuentas | `GET/POST/PATCH/DELETE /profiles`, `GET /profiles/:id`, `PUT /profiles/:id/sources`, `PATCH /profiles/:id/schedule`, `POST /profiles/:id/run` (recolectar ahora), `POST /profiles/:id/ideas` (ideas a demanda), `…/accounts`, `…/objectives` |
 | Fuentes | `GET/POST/PATCH/DELETE /sources`, `GET /sources/templates`, `POST /sources/probe` |
 | Señales | `GET /signals` (plataforma, tipo, perfil, relevancia, fechas, duplicados), `GET /signals/:id`, `POST /signals/from-text`, `POST /signals/from-url` |

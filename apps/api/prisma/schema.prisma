@@ -17,12 +17,21 @@ datasource db {
 // Enums del dominio
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Redes que cubre el coach en v1. El front agrupa/etiqueta por acá.
-enum Platform {
-  INSTAGRAM
-  TIKTOK
-  YOUTUBE
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Redes y formatos: NO son enums de Postgres a propósito.
+//
+// Las redes y sus formatos cambian seguido (LinkedIn entró después de la v1, y
+// cada red inventa formatos cada tanto). Un enum obliga a una migración en cada
+// deploy para agregar un valor, y **quitar un valor de un enum es imposible** sin
+// recrear el tipo: justo lo contrario de "agregar o quitar una red no debe ser
+// duro".
+//
+// Entonces: acá se guarda texto y la verdad vive en el catálogo
+// (`src/modules/platforms/platforms.catalog.ts`), que valida con Zod en la
+// frontera. Sumar LinkedIn = una entrada en el catálogo, cero migraciones.
+// Los valores se guardan con la MISMA forma que usaba el enum (MAYÚSCULAS) para
+// no tener que migrar datos.
+// ─────────────────────────────────────────────────────────────────────────────
 
 /// Tipo de fuente de tendencias = adaptador del conector que la atiende
 /// (modules/connectors). Sumar una fuente nueva de un tipo existente NO toca
@@ -59,16 +68,6 @@ enum ProfileSignalStatus {
   DISCARDED
 }
 
-enum IdeaFormat {
-  REEL
-  SHORT
-  CAROUSEL
-  POST
-  STORY
-}
-
-/// IDEA → APPROVED → SCHEDULED → PUBLISHED (o DISCARDED). El paso a PUBLISHED
-/// lo hace SIEMPRE el humano ("ya publiqué"): el harness no publica (ADR-003).
 enum IdeaStatus {
   IDEA
   APPROVED
@@ -152,12 +151,15 @@ model Profile {
   @@index([nextRunAt])
 }
 
-/// Una cuenta social del perfil (Instagram/TikTok/YouTube). Un perfil puede
-/// tener varias cuentas y de distintas redes.
+/// Una cuenta social del perfil (Instagram / TikTok / YouTube / LinkedIn). Un
+/// perfil puede tener varias cuentas y de distintas redes: agregar o quitar una
+/// red a un perfil es agregar o borrar una fila acá, nada más.
 model SocialAccount {
   id        String   @id @default(cuid())
   profileId String
-  platform  Platform
+  /// Clave del catálogo de redes: INSTAGRAM | TIKTOK | YOUTUBE | LINKEDIN
+  /// (validada en la frontera con `PlatformKeySchema`).
+  platform  String
   handle    String
   url       String?
   /// Punto de partida declarado (para calcular crecimiento relativo).
@@ -278,7 +280,8 @@ model Signal {
   url          String
   title        String
   author       String?
-  platform     Platform?
+  /// Red de la que viene la señal, si aplica (clave del catálogo de redes).
+  platform     String?
   publishedAt  DateTime?
   region       String?
   keywords     String[] @default([])
@@ -345,8 +348,10 @@ model ProfileSignal {
 model ContentIdea {
   id        String   @id @default(cuid())
   profileId String
-  platform  Platform
-  format    IdeaFormat
+  /// Red y formato destino (catálogo `modules/platforms`). Se validan JUNTOS:
+  /// hay formatos que existen en una red y no en otra (p. ej. POLL en LinkedIn).
+  platform  String
+  format    String
 
   title    String
   hook     String
