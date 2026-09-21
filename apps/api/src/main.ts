@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { GlobalExceptionFilter } from './common/global-exception.filter';
 import { JsonLogger } from './common/json-logger.service';
 import { enabledConnectors, features } from './config/features';
 import { env } from './config/env';
@@ -11,6 +12,9 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
   const logger = app.get(JsonLogger);
   app.useLogger(logger);
+
+  // Errores con un formato único y sin filtrar internos al cliente.
+  app.useGlobalFilters(new GlobalExceptionFilter(logger));
 
   app.setGlobalPrefix('api');
   if (env.TRUST_PROXY > 0) app.set('trust proxy', env.TRUST_PROXY);

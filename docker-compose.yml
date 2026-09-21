@@ -40,6 +40,12 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       QUEUE_PREFIX: ${QUEUE_PREFIX:-socialharness}
+      # ⚠️ OJO CON EL WATCHER: el proyecto vive en una carpeta de OneDrive y los
+      # eventos de archivo no llegan al contenedor por el bind mount, así que
+      # `nest start --watch` NO recompila al editar desde Windows (el archivo sí
+      # se copia, pero el watch no se entera). Probado también con
+      # `TSC_WATCHFILE=FixedPollingInterval`: tampoco lo detecta.
+      # Workaround: después de tocar código, `docker compose restart api`.
       # Las fuentes E2E solo se siembran con FIXTURE_ENABLED=true (dev local).
       FIXTURE_BASE_URL: ${FIXTURE_BASE_URL:-http://socialharness-fixture}
       FIXTURE_ENABLED: ${FIXTURE_ENABLED:-false}

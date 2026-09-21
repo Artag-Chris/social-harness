@@ -259,8 +259,11 @@ npm run llm:check    # proveedores de IA contra la API real (1 llamada mínima)
 ## API
 
 Guard global: **Bearer con el JWT de atiende** (`sub`/`businessId`/`role`); sin login propio.
-Hoy ya están `GET /api/health`, `GET /api/platforms` (catálogo de redes) y Swagger. El resto del
+Hoy ya están `GET /api/health`, `GET /api/platforms`, `GET /api/config`, los perfiles con sus cuentas
+y objetivos, el catálogo de fuentes con su verificación (`POST /sources/probe`) y Swagger. El resto del
 contrato, por fase:
+
+> El detalle de **qué funciona hoy y cómo probarlo** está en [`docs/IMPLEMENTADO.md`](docs/IMPLEMENTADO.md).
 
 | Grupo | Endpoints |
 |---|---|
@@ -293,7 +296,7 @@ social-harness/
 | Fase | Contenido | Estado |
 |---|---|---|
 | 0 | Esqueleto: repo, compose, schema, `ensure-database`, seed, ADRs y docs | **hecho** |
-| 1 | Auth con JWT de atiende + CRUD de perfiles/cuentas/objetivos + catálogo de fuentes con `probe` | pendiente |
+| 1 | Auth con JWT de atiende + CRUD de perfiles/cuentas/objetivos + catálogo de fuentes con `probe` | **hecho** |
 | 2 | Conectores (YouTube, Google Trends, RSS, página pública, manual) + ingestión/dedup | pendiente |
 | 3 | Análisis de relevancia + ideas y calendario + avisos | pendiente |
 | 4 | Borradores a demanda + registro de publicado + métricas y reporte de rendimiento | pendiente |

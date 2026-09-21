@@ -28,13 +28,38 @@ Coach de redes sociales: recibe **perfiles** con objetivos, recolecta **señales
 
 | Fase | Qué | Estado |
 | --- | --- | --- |
-| 0 | Scaffolding: repo, compose, `.env.example`, schema Prisma, `ensure-database`, seed, ADRs 001-003 + event-flow | **entregado y verificado E2E** (ver abajo) |
-| 1 | Auth (JWT de atiende) + CRUD de perfiles/cuentas/objetivos + catálogo de fuentes + `/sources/probe` + templates | pendiente |
-| 2 | Conectores (`youtube`, `google-trends`, `rss`, `public-web`, `manual`) + dedup + `GET /signals` + `schedule-cycle`/`collect` | pendiente |
+| 0 | Scaffolding: repo, compose, `.env.example`, schema Prisma, `ensure-database`, seed, ADRs 001-003 + event-flow | **entregado y verificado E2E** |
+| — | Capa de IA (ADR-004) y catálogo de redes con LinkedIn (ADR-005) | **entregado y verificado** |
+| 1 | Auth (JWT de atiende) + perfiles/cuentas/objetivos + catálogo de fuentes con `probe` + `GET /config` | **entregado y verificado E2E** (ver `docs/IMPLEMENTADO.md`) |
+| 2 | Conectores (`youtube`, `google-trends`, `rss`, `public-web`, `manual`) + dedup + `GET /signals` + `schedule-cycle`/`collect` | **siguiente** |
 | 3 | Análisis (prefilter + LLM batched) + ideas/calendario + notificación | pendiente |
 | 4 | Borradores a demanda + "ya publiqué" + métricas manuales/CSV + `PerformanceReport` + `GET /usage` | pendiente |
 | 5 | Pestaña "Social Coach" en `dashboard/` (cliente + rutas + `navItems`) | pendiente |
 | 6 | Verificación E2E final, README portafolio, git + instrucciones de deploy | parcial (README hecho) |
+
+### Fase 1 — qué quedó hecho (2026-09-21)
+
+- **Auth**: `AuthGuard` global (JWT de atiende, `@Public()` solo en `/health`), `@CurrentUser()`,
+  `AccessScope` (el dueño sale del `sub`; `SUPER_ADMIN` ve todo; 404 en vez de 403) y
+  `npm run dev-token` para curl/Swagger.
+- **Perfiles**: CRUD + cadencia en horas (rearma `nextRunAt`) + cuentas (agregar/quitar RED, validada
+  contra el catálogo, 409 si se repite) + objetivos.
+- **Fuentes**: catálogo compartido con CRUD, `GET /sources/templates` y **`POST /sources/probe`**
+  (red real: timeout, tope de tamaño por streaming, anti-SSRF, parseo de RSS y de recetas CSS con
+  diagnóstico por selector, detección de challenge, métricas y fechas bien parseadas).
+- **Transversal**: `ZodValidationPipe` (400 con campo + motivo) y `GlobalExceptionFilter`
+  (4xx no ensucia el log; los internos no se filtran al cliente). Nuevas deps: `@nestjs/jwt`,
+  `cheerio`, `rss-parser`.
+- **Bugs propios encontrados por los tests** (y arreglados): métrica `1.2M` se leía como 12 millones;
+  la fecha salía del texto ("18 sep" → 2001) en vez del atributo `datetime`; el contador de items sin
+  fecha incluía los descartados; el mensaje de "selector obligatorio" no aparecía si faltaba la clave;
+  `setSources` dejaba `nextRunAt` en null.
+- **Pie de banco del entorno**: el `nest start --watch` **no recompila** al editar desde Windows (el
+  bind mount de OneDrive no propaga los eventos de archivo; el archivo sí llega al contenedor).
+  Probado con `TSC_WATCHFILE=FixedPollingInterval`: **tampoco**. → Después de tocar código,
+  `docker compose restart api`.
+- Verificación: **212 tests en 22 archivos**, `tsc` limpio, `nest build` OK y el flujo completo
+  ejercitado contra el stack (detalle en `docs/IMPLEMENTADO.md`).
 
 ## Fase 0 — lo que quedó hecho
 
