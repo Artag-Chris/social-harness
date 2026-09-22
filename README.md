@@ -314,3 +314,54 @@ El harness **no** automatiza sesiones iniciadas ni saltea bloqueos: usa APIs ofi
 públicos y páginas públicas con política de cortesía (`respectRobots`, límites de página y delay
 configurables). Para lo que no se puede automatizar, la vía prevista es cargarlo a mano, no
 forzarlo.
+
+---
+
+## Arranque en el server: qué esperar y qué hacer si falla
+
+El `CMD` de la imagen encadena, en este orden: crear la base + `pgvector` →
+generar el cliente → aplicar migraciones → asegurar el índice HNSW → seed → arrancar.
+Lo que tiene que verse en `docker compose logs -f api`:
+
+```
+[ensure-database] listo para migrar sobre "socialharness"
+Applying migration `...`            (una por migración pendiente)
+[ensure-index] pgvector X.Y.Z
+[ensure-index] índice HNSW de señales listo
+[seed] perfil "Mi marca personal" listo ...
+{"msg":"social-harness api escuchando","port":3200, ...}
+```
+
+### Si queda en `P3009` (migración fallida)
+
+Prisma deja la migración registrada como fallida y se niega a aplicar las siguientes. La
+intentona fallida **no deja nada en la base** (cada migración corre en una transacción),
+así que el arreglo es borrar el registro del intento:
+
+```bash
+docker exec -it atiende-postgres psql -U atiende -d socialharness
+```
+
+```sql
+-- Confirmá que el esquema está vacío (tiene que dar 0)
+select count(*) from information_schema.tables where table_schema = 'public';
+-- Borrá el registro del intento fallido
+delete from "_prisma_migrations" where finished_at is null;
+\q
+```
+
+y volver a levantar (`docker compose up -d --build api`). El camino "oficial" de Prisma es
+`npx prisma migrate resolve --rolled-back <migración>` (tiene que imprimir
+"marked as rolled back"); si no lo hace, usar el borrado de arriba.
+
+### Si el índice HNSW no se puede crear
+
+`ensure-index` avisa y **el harness arranca igual** (es performance, no correctitud). El
+mensaje trae la versión de pgvector: el índice necesita **>= 0.5.0**. Se arregla con
+`ALTER EXTENSION vector UPDATE;` en esa base, o actualizando la imagen de Postgres.
+
+### Si la API no responde
+
+- `restart: unless-stopped` + un error de arranque = bucle de reinicios: mirá el log.
+- El watcher de Nest no funciona con el bind mount de OneDrive: después de tocar código,
+  `docker compose restart api`.
