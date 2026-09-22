@@ -63,10 +63,11 @@ async function main(): Promise<void> {
       process.stderr.write(
         `[recover-migrations] hay ${failed.length} migración(es) fallida(s) (${names}) y ${tables} tabla(s) en el esquema.\n` +
           '[recover-migrations] NO se toca nada automáticamente: puede haber datos y esa decisión es de una persona.\n' +
-          '[recover-migrations] Si esa base es NUEVA y esas tablas no tienen nada tuyo (la migración fallida las dejó a medias):\n' +
-          '  docker exec -it atiende-postgres psql -U atiende -d <base> \\\n' +
-          '    -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"\n' +
-          '  y volvé a levantar: la migración se aplica de cero.\n' +
+          '[recover-migrations] Si esa base es NUEVA y esas tablas son restos de la migración que falló (no tienen nada tuyo):\n' +
+          '  docker exec -it <postgres> psql -U <usuario> -d <base> -c "DROP EXTENSION IF EXISTS vector CASCADE; DROP SCHEMA public CASCADE; CREATE SCHEMA public;"\n' +
+          '  Ojo con la extensión: soltarla es necesario. Si se borra solo el esquema, `vector` queda\n' +
+          '  registrada sin sus objetos y la migración vuelve a fallar (tipo "vector" inexistente).\n' +
+          '  El boot la reinstala sola (`ensure-database`). Después, volvé a levantar y migra de cero.\n' +
           '[recover-migrations] Si esas tablas SÍ tienen datos, resolvelo a mano:\n' +
           '  npx prisma migrate resolve --rolled-back <migración>\n' +
           '[recover-migrations] En los dos casos se quita el registro del INTENTO; los datos no se tocan.\n',

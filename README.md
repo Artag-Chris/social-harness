@@ -350,14 +350,17 @@ Applying migration `20260920000000_init`
 
 Si **sí hay tablas** (la migración alcanzó a crear cosas antes de fallar), no toca nada y
 dice qué hacer: puede haber datos, así que esa decisión es de una persona. En ese caso,
-mirá si esas tablas tienen algo tuyo y, si la base es nueva, limpiá el esquema:
+mirá si esas tablas tienen algo tuyo y, si la base es nueva, limpiá el esquema — **con la
+extensión incluida**, porque si se borra solo el esquema, `pgvector` queda registrada sin
+sus objetos y la migración vuelve a fallar por el tipo `vector`:
 
 ```bash
 docker exec -it atiende-postgres psql -U atiende -d socialharness \
-  -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+  -c "DROP EXTENSION IF EXISTS vector CASCADE; DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
 ```
 
-y volvé a levantar (`docker compose up -d --build api`). El camino "oficial" de Prisma es
+El boot reinstala la extensión solo (`ensure-database` corre en cada arranque). Después,
+`docker compose up -d --build api` migra de cero. El camino "oficial" de Prisma es
 `npx prisma migrate resolve --rolled-back <migración>` (tiene que imprimir
 "marked as rolled back").
 
