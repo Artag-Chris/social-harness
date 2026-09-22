@@ -17,14 +17,14 @@ fase. Última actualización: **2026-09-21** (Fase 1 terminada).
 | 1 | Auth con el JWT de atiende + perfiles/cuentas/objetivos + catálogo de fuentes con verificación | **hecho** |
 | 2 | Conectores que recolectan + ingestión con dedup + scheduler por perfil + señales | **hecho** |
 | 3 | Análisis de relevancia + ideas y calendario + avisos | **hecho** |
-| 4 | Borradores a demanda + "ya publiqué" + métricas y reporte de rendimiento | pendiente |
-| 5 | Pestaña "Social Coach" en el dashboard | pendiente |
-| 6 | Verificación E2E en el server + publicación de canal de avisos | pendiente |
+| 4 | Borradores a demanda + "ya publiqué" + métricas y reporte de rendimiento | **hecho** |
+| 5 | Pestaña "Social Coach" en el dashboard | **hecho** |
+| 6 | Verificación E2E en el server + conector oficial de métricas | pendiente |
 
-**Lo que NO existe todavía** (para no buscarlo en vano): borradores de piezas, métricas y reporte de
-rendimiento, y la pestaña en el dashboard. Lo que ya funciona es el ciclo completo hasta las
-**sugerencias**: el harness recolecta, juzga la relevancia de cada señal según el perfil y arma ideas en
-un calendario, avisando en la bandeja.
+**Lo que NO existe todavía** (para no buscarlo en vano): el conector oficial de métricas (hoy se cargan
+a mano, ADR-002), el `PublishPort` (publicar sigue siendo un acto humano, ADR-003) y la verificación
+final en el server. Lo que ya funciona es el ciclo completo: recolectar → analizar → sugerir ideas →
+escribir el borrador a pedido → registrar que se publicó → medir y reportar.
 
 ---
 
@@ -181,7 +181,34 @@ un calendario, avisando en la bandeja.
 | `GET /ideas` | Calendario con filtros por perfil, estado, red y rango de fechas |
 | `POST /ideas` · `GET /ideas/:id` · `PATCH /ideas/:id` · `DELETE /ideas/:id` | Cargar a mano, ver, mover/aprobar/descartar/marcar publicada y borrar |
 | `POST /profiles/:profileId/ideas` | **Generar ideas ahora** (encolado, 202): es el camino cuando la generación automática está apagada |
+| `POST /ideas/:id/draft` · `GET /drafts/:id` · `PATCH /drafts/:id` | **Pedir un borrador** (202, es una llamada de IA), verlo y editarlo |
+| `POST /ideas/:id/published` | **Ya publiqué** + el enlace de la pieza |
+| `GET/POST /accounts/:id/metrics` | Historial y carga de métricas (snapshot o CSV pegado) |
+| `GET /profiles/:id/performance` · `POST /profiles/:id/performance/run` | Reportes del perfil y armar uno ahora |
+| `GET /usage` | Gasto de IA: totales, por trabajo y por día |
 | `GET /notifications` · `PATCH /notifications/:id/read` · `PATCH /notifications/read-all` | Bandeja de avisos |
+
+### Borradores, medición y dashboard (fases 4 y 5)
+
+- **Borradores a demanda** (`modules/drafts`): `POST /ideas/:id/draft` encola (202) y el worker escribe
+  caption, guion (vacío si no es video), 2-3 arranques alternativos, cierre y notas de producción.
+  **Regenerar crea una versión nueva**: si el usuario editó (`editedByUser`), su texto no se pisa. Sin IA
+  cae a una plantilla que lo dice. El pipeline **nunca** escribe solo.
+- **"Ya publiqué"**: `POST /ideas/:id/published` (lo marca el humano) con el enlace de la pieza, que es
+  lo que después permite atribuir rendimiento.
+- **Métricas** (`modules/metrics`): `POST /accounts/:id/metrics` acepta un snapshot o un **CSV pegado**
+  (una fila por día). El parser es tolerante a propósito (`;` o `,`, encabezados en español o inglés,
+  `1.200`, `4,5 %`, `dd/mm/yyyy`) y **no inventa**: una fila sin fecha se descarta y se avisa. El snapshot
+  es único por **cuenta y día**, así que reimportar el mismo CSV actualiza en vez de duplicar.
+- **Reporte de rendimiento** (`modules/performance`): los deltas los calcula el código (seguidores
+  primero→último, alcance/impresiones/likes sumados, engagement promediado) y **la IA solo interpreta**.
+  Sin métricas cargadas **no se llama a la IA** y el aviso dice que faltan datos: un análisis sin números
+  es una opinión con formato de dato.
+- **Control de gasto**: `GET /usage` devuelve totales, por trabajo y por día (tokens, latencia, costo).
+- **Pestaña "Social Coach" en el dashboard** (fase 5, repo `dashboard/`): ocho vistas —Resumen,
+  Tendencias, Ideas y calendario, detalle de idea con borrador, Pegar inspiración, Perfiles, Fuentes,
+  Métricas y reportes, Avisos— usando la sesión de atiende (sin segundo login) y el mismo estilo que la
+  pestaña de CV. `NEXT_PUBLIC_SOCIAL_API_URL` en `.env.local`; CORS del harness ya abre el origen.
 
 ### Config para la UI
 
@@ -239,8 +266,30 @@ Swagger: `http://localhost:3200/api/docs` (botón *Authorize* con el token del p
 
 Ejercitado contra el stack real, no solo con tests:
 
-- `npm run check` → **312 tests en 35 archivos** + `tsc --noEmit` sin errores · `npm run build` OK.
+- `npm run check` → **341 tests en 39 archivos** + `tsc --noEmit` sin errores · `npm run build` OK.
 - **Guard**: `/api/health` responde sin token; `/api/profiles` sin token → **401**.
+
+### Fases 4 y 5: borradores, medición y el dashboard (con IA real)
+
+- **Borrador real** (DeepSeek) pedido a mano: caption, guion, **3 arranques alternativos** y un cierre que
+  invita a comentar, escrito con el material de las señales y sin datos inventados. Editarlo quedó
+  marcado (`editedByUser: true`) y regenerar crea la versión siguiente.
+- **"Ya publiqué"** con enlace: la idea quedó `PUBLISHED` con `publishedUrl` (y un aviso `IDEAS_READY`
+  previo en la bandeja).
+- **CSV de métricas**: 3 días importados; al **reimportar el mismo CSV** siguen siendo **3 snapshots**
+  (no 6) con los valores actualizados: la regla de "un día por cuenta" se cumple.
+- **Reporte de rendimiento** (DeepSeek) con 3 días de métricas y 1 publicación: calculó los deltas
+  (1000 → 1185 seguidores, 136.000 de alcance, engagement 3,7 %) y **declaró lo que no puede sostener**
+  ("solo 3 de 30 días medidos", "la única publicación es de LinkedIn y las métricas son de Instagram:
+  el resultado de esa pieza es indeterminado"). Es exactamente el comportamiento pedido en el prompt.
+- **El modelo encontró un hueco real**: cuestionó que el engagement fuera inconsistente con los conteos
+  crudos y pidió documentar la fórmula. Tenía razón en que el prompt no decía qué significa el número;
+  se aclaró (viene dado por la plataforma y promediado) y se le pidió no recalcularlo.
+- **Gasto**: 10 llamadas medidas en `CoachRun` (analyze, ideas, draft, performance) con 9.448 tokens de
+  entrada y 18.646 de salida, latencias de 3-15 s. El costo sigue en 0 porque el modelo real
+  (`deepseek-flash`) no está en la tabla de precios.
+- **Pestaña del dashboard**: `npm run build` compila las 8 vistas de `/social` y `tsc` limpio. La
+  verificación visual queda para el navegador del usuario (la pestaña necesita su sesión de atiende).
 
 ### Fase 3: análisis, ideas y avisos (con IA real)
 
@@ -317,6 +366,8 @@ Con el perfil del seed apuntando a las 3 fuentes del fixture:
 | **El análisis se hacía dos veces por ciclo** (una por fuente) en vez de una por perfil | Los logs del E2E: 2 llamadas de IA para el mismo perfil | `jobId` **por minuto** + pequeño retraso: las fuentes de un ciclo se agrupan en una llamada y un ciclo posterior sí encola (sin caer en la trampa del `jobId` fijo) |
 | **Pegar una inspiración no la analizaba** hasta la próxima recolección (que podía no traer nada nuevo) | Prueba manual del flujo | El pegado manual encola el análisis del perfil |
 | El puerto de IA infería el tipo de **entrada** del schema Zod, así que un campo con `default` llegaba opcional al llamador | El compilador, en 4 lugares | `z.ZodType<T, z.ZodTypeDef, any>`: el genérico se infiere con la **salida** (con los `default` aplicados) |
+| **Dos clics en el mismo milisegundo** generaban el mismo `jobId` y BullMQ se comía el segundo pedido, en silencio | Un test que pedía dos borradores seguidos: solo encolaba uno | Los pedidos manuales (borrador, ideas, reporte) van **sin `jobId`**: cada clic es un trabajo. El único que deduplica es el análisis, y ahí es a propósito |
+| El prompt del reporte no decía **qué significa** `engagementRate`, así que el modelo lo comparó con los conteos crudos y lo declaró inconsistente | Lo detectó el propio modelo en el reporte | El prompt aclara que la tasa la reporta la plataforma y viene promediada, y le prohíbe recalcularla |
 | El contenedor no recompilaba al editar (watcher muerto por el bind mount de OneDrive) | Al probar un cambio de mensaje: el archivo llegaba pero el watch no reaccionaba | Documentado con workaround (`docker compose restart api`); se probó `TSC_WATCHFILE` y **no** lo arregla |
 | El `docker:infra:up` no funcionaba solo | Falló al levantar la infra | Los scripts pasan los dos compose y arrancan/paran `postgres` |
 

@@ -54,4 +54,16 @@ export class AccessScope {
       throw new NotFoundException(`El perfil ${profileId} no existe.`);
     }
   }
+
+  /** Ídem para una idea (cuelga del perfil). Se usa antes de encolar un trabajo. */
+  async assertIdea(user: AuthPayload, ideaId: string): Promise<void> {
+    const found = await this.prisma.contentIdea.findFirst({
+      where: { id: ideaId, profile: this.profileWhere(user) },
+      select: { id: true },
+    });
+
+    if (!found) {
+      throw new NotFoundException(`La idea ${ideaId} no existe.`);
+    }
+  }
 }

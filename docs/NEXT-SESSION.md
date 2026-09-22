@@ -33,9 +33,27 @@ Coach de redes sociales: recibe **perfiles** con objetivos, recolecta **señales
 | 1 | Auth (JWT de atiende) + perfiles/cuentas/objetivos + catálogo de fuentes con `probe` + `GET /config` | **entregado y verificado E2E** (ver `docs/IMPLEMENTADO.md`) |
 | 2 | Conectores (`youtube`, `google-trends`, `rss`, `public-web`, `manual`) + dedup + `GET /signals` + `schedule-cycle`/`collect` | **entregado y verificado E2E** (ver `docs/IMPLEMENTADO.md`) |
 | 3 | Análisis (prefilter + LLM batched) + ideas/calendario + notificación | **entregado y verificado E2E con IA real** (ver `docs/IMPLEMENTADO.md`) |
-| 4 | Borradores a demanda + "ya publiqué" + métricas manuales/CSV + `PerformanceReport` + `GET /usage` | **siguiente** |
-| 5 | Pestaña "Social Coach" en `dashboard/` (cliente + rutas + `navItems`) | pendiente |
-| 6 | Verificación E2E final, README portafolio, git + instrucciones de deploy | parcial (README hecho) |
+| 4 | Borradores a demanda + "ya publiqué" + métricas (manual/CSV) + reporte de rendimiento + `GET /usage` | **entregado y verificado E2E con IA real** |
+| 5 | Pestaña "Social Coach" en `dashboard/` (8 vistas + `navItems` + `NEXT_PUBLIC_SOCIAL_API_URL`) | **entregado** (build + tsc OK; falta la pasada visual del usuario) |
+| 6 | Verificación E2E en el server + conector oficial de métricas (ADR-002) | pendiente |
+
+### Fases 4 y 5 — qué quedó hecho (2026-09-22)
+
+- **Borradores** (`modules/drafts`): `POST /ideas/:id/draft` (202) → caption, guion, arranques
+  alternativos, cierre y notas. Regenerar crea **versión nueva**; editar marca `editedByUser` y no se
+  pisa. Sin IA: plantilla que lo declara. **El pipeline nunca escribe solo.**
+- **Publicado** (`POST /ideas/:id/published`): lo marca el humano, con el enlace de la pieza.
+- **Métricas** (`modules/metrics`): snapshot o **CSV pegado** (parser tolerante: `;`/`,`, español/inglés,
+  miles, `%`, fechas varias). Único por (cuenta, día) → reimportar **actualiza**, no duplica.
+- **Reporte** (`modules/performance`): deltas calculados en código, interpretación por IA; **sin métricas
+  no llama a la IA**. `GET /usage` para el gasto.
+- **Dashboard**: pestaña `Social Coach` con Resumen, Tendencias, Ideas (+ detalle con borrador), Pegar
+  inspiración, Perfiles (+ cuentas y objetivos), Fuentes, Métricas/reportes y Avisos, reusando la sesión
+  de atiende, `usePoll` y el estilo de la pestaña de CV.
+- **Bug real que cazó un test**: dos clics en el mismo milisegundo daban el mismo `jobId` y BullMQ
+  ignoraba el segundo. Los pedidos manuales ahora van sin `jobId`.
+- **Mejora que pidió el propio modelo**: el prompt del reporte no decía qué significa `engagementRate`;
+  ahora lo aclara y prohíbe recalcularlo.
 
 ### Fase 3 — qué quedó hecho (2026-09-22)
 

@@ -304,9 +304,9 @@ social-harness/
 | 1 | Auth con JWT de atiende + CRUD de perfiles/cuentas/objetivos + catálogo de fuentes con `probe` | **hecho** |
 | 2 | Conectores (YouTube, Google Trends, RSS, página pública, manual) + ingestión/dedup + scheduler | **hecho** |
 | 3 | Análisis de relevancia + ideas y calendario + avisos | **hecho** |
-| 4 | Borradores a demanda + registro de publicado + métricas y reporte de rendimiento | pendiente |
-| 5 | Pestaña «Social Coach» en el dashboard | pendiente |
-| 6 | Verificación E2E en el server + publicación de canal de avisos | pendiente |
+| 4 | Borradores a demanda + registro de publicado + métricas y reporte de rendimiento | **hecho** |
+| 5 | Pestaña «Social Coach» en el dashboard | **hecho** |
+| 6 | Verificación E2E en el server + conector oficial de métricas (ADR-002) | pendiente |
 
 ## Aviso sobre los términos de uso
 

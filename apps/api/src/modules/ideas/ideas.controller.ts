@@ -18,9 +18,11 @@ import { IdeasService } from './ideas.service';
 import {
   IdeaInputSchema,
   IdeaListQuerySchema,
+  IdeaPublishedSchema,
   IdeaUpdateSchema,
   type IdeaInput,
   type IdeaListQuery,
+  type IdeaPublishedInput,
   type IdeaUpdateInput,
 } from './ideas.schema';
 
@@ -62,6 +64,16 @@ export class IdeasController {
     @Body(new ZodValidationPipe(IdeaUpdateSchema)) input: IdeaUpdateInput,
   ) {
     return this.ideas.update(user, id, input);
+  }
+
+  @Post(':id/published')
+  @ApiOperation({ summary: '"Ya publiqué" (lo marca el humano) + el enlace de la pieza' })
+  markPublished(
+    @CurrentUser() user: AuthPayload,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(IdeaPublishedSchema)) input: IdeaPublishedInput,
+  ) {
+    return this.ideas.markPublished(user, id, input);
   }
 
   @Delete(':id')

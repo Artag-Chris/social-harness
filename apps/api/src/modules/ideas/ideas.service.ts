@@ -28,7 +28,7 @@ import {
   type IdeaFromLlm,
   type IdeasResponse,
 } from './ideas.prompt';
-import type { IdeaInput, IdeaListQuery, IdeaUpdateInput } from './ideas.schema';
+import type { IdeaInput, IdeaListQuery, IdeaPublishedInput, IdeaUpdateInput } from './ideas.schema';
 
 /** Un elemento tal como lo devuelve el contrato (con los `default` sin aplicar). */
 type ParsedIdea = IdeasResponse['ideas'][number];
@@ -68,11 +68,9 @@ export class IdeasService {
 
   /** Encola la generación (para el botón "Generar ideas ahora"). */
   async requestGeneration(profileId: string): Promise<void> {
-    await this.ideasQueue.add(
-      'ideas',
-      { profileId },
-      { ...JOB_OPTIONS, jobId: `ideas-${profileId}-${Date.now()}` },
-    );
+    // Sin `jobId`: es un pedido manual y cada clic tiene que correr. No hay riesgo de
+    // gasto repetido porque la corrida siguiente no encuentra señales sin usar.
+    await this.ideasQueue.add('ideas', { profileId }, JOB_OPTIONS);
   }
 
   async generateForProfile(profileId: string): Promise<GenerateIdeasOutcome> {
@@ -320,8 +318,28 @@ export class IdeasService {
         ...(input.hook === undefined ? {} : { hook: input.hook }),
         ...(input.angle === undefined ? {} : { angle: input.angle }),
         ...(input.hashtags === undefined ? {} : { hashtags: input.hashtags }),
+        ...(input.publishedUrl === undefined ? {} : { publishedUrl: input.publishedUrl }),
         // Publicar lo marca SIEMPRE el humano.
         ...(input.status === IdeaStatus.PUBLISHED ? { publishedAt: new Date() } : {}),
+      },
+    });
+  }
+
+  /**
+   * "Ya publiqué": lo marca el humano, nunca la IA (regla del proyecto).
+   *
+   * El enlace es opcional pero es lo que después permite atribuir rendimiento, así
+   * que se invita a pegarlo.
+   */
+  async markPublished(user: AuthPayload, ideaId: string, input: IdeaPublishedInput) {
+    await this.get(user, ideaId);
+
+    return this.prisma.contentIdea.update({
+      where: { id: ideaId },
+      data: {
+        status: IdeaStatus.PUBLISHED,
+        publishedAt: input.publishedAt ?? new Date(),
+        ...(input.url === undefined ? {} : { publishedUrl: input.url }),
       },
     });
   }

@@ -171,13 +171,9 @@ export class AnalysisService {
     let ideasEnqueued = false;
 
     if (ideasEnabled && topScore >= features.ideas.relevanceMinScore) {
-      await this.ideasQueue.add(
-        'ideas',
-        { profileId },
-        // `jobId` con marca de tiempo: un id fijo haría que BullMQ ignore el
-        // encolado siguiente (la trampa que ya apareció en cv-harness).
-        { ...JOB_OPTIONS, jobId: `ideas-${profileId}-${Date.now()}` },
-      );
+      // Sin `jobId`: el pedido automático tiene que correr igual (la corrida
+      // siguiente no encuentra señales sin usar, así que no hay gasto repetido).
+      await this.ideasQueue.add('ideas', { profileId }, JOB_OPTIONS);
       ideasEnqueued = true;
     }
 

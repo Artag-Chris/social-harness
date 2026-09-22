@@ -33,8 +33,17 @@ export const IdeaUpdateSchema = z.object({
   hook: z.string().min(3).max(400).optional(),
   angle: z.string().min(3).max(1200).optional(),
   hashtags: z.array(z.string().max(60)).max(15).optional(),
+  /** Dónde quedó publicado (se puede completar al marcar como publicada). */
+  publishedUrl: z.string().url().max(500).nullish(),
+});
+
+/** "Ya publiqué": cierra la idea y guarda el enlace para poder atribuir después. */
+export const IdeaPublishedSchema = z.object({
+  url: z.string().url().max(500).nullish(),
+  publishedAt: z.coerce.date().nullish(),
 });
 
 export type IdeaListQuery = z.infer<typeof IdeaListQuerySchema>;
 export type IdeaInput = z.infer<typeof IdeaInputSchema>;
 export type IdeaUpdateInput = z.infer<typeof IdeaUpdateSchema>;
+export type IdeaPublishedInput = z.infer<typeof IdeaPublishedSchema>;

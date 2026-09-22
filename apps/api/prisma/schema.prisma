@@ -377,6 +377,9 @@ model ContentIdea {
   status       IdeaStatus @default(IDEA)
   scheduledFor DateTime?
   publishedAt  DateTime?
+  /// Dónde quedó publicado (lo pega el humano al marcar "ya publiqué"). Es lo que
+  /// permite atribuir el rendimiento después.
+  publishedUrl String?
   /// `ia` = la redactó el modelo; `plantilla` = la armó el respaldo determinístico
   /// (cuando no hay proveedor de IA o devolvió algo inválido). Se guarda para que
   /// la UI no haga pasar una plantilla por una sugerencia del modelo.
@@ -462,6 +465,10 @@ model MetricSnapshot {
   account SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
   profile Profile       @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
+  /// Un snapshot por cuenta y DÍA: así reimportar el mismo CSV (o cargar dos veces
+  /// los números del mismo día) actualiza en vez de duplicar, y el reporte de
+  /// rendimiento no cuenta el mismo día dos veces.
+  @@unique([socialAccountId, capturedAt])
   @@index([socialAccountId, capturedAt])
   @@index([profileId, capturedAt])
 }
