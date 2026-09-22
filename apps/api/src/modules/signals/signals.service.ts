@@ -1,8 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
 import type { Prisma, SignalKind } from '@prisma/client';
+import type { Queue } from 'bullmq';
 import { buildDupKey } from '../../common/dup-key';
 import { fingerprintOf, fingerprintOfText } from '../../common/hash.util';
 import { canonicalizeUrl } from '../../common/url.util';
+import { JOB_OPTIONS, QUEUES } from '../../config/queue.config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AccessScope } from '../auth/access-scope.service';
 import type { AuthPayload } from '../auth/auth.types';
@@ -21,6 +24,7 @@ export class SignalsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: AccessScope,
+    @InjectQueue(QUEUES.ANALYZE) private readonly analyzeQueue: Queue,
   ) {}
 
   async list(user: AuthPayload, query: SignalListQuery) {
@@ -121,6 +125,7 @@ export class SignalsService {
       // Ya estaba (lo pegaste antes): no se duplica, pero se re-asegura que el
       // perfil lo tenga asignado.
       await this.assignToProfile(existing.id, input.profileId);
+      await this.enqueueAnalysis(input.profileId);
       return { created: false, signalId: existing.id };
     }
 
@@ -150,7 +155,22 @@ export class SignalsService {
     });
 
     await this.assignToProfile(signal.id, input.profileId);
+    // Lo pegado a mano también se analiza: si no, quedaría sin puntaje hasta la
+    // próxima recolección (y podría no llegar nunca, si no entra nada nuevo).
+    await this.enqueueAnalysis(input.profileId);
     return { created: true, signalId: signal.id };
+  }
+
+  /** Encola el análisis del perfil con el mismo `jobId` por minuto que el scheduler. */
+  private async enqueueAnalysis(profileId: string): Promise<void> {
+    await this.analyzeQueue.add(
+      'analyze',
+      { profileId },
+      {
+        ...JOB_OPTIONS,
+        jobId: `analyze-${profileId}-${Math.floor(Date.now() / 60_000)}`,
+      },
+    );
   }
 
   private async assignToProfile(signalId: string, profileId: string): Promise<void> {

@@ -135,6 +135,28 @@ describe('IngestionService', () => {
     expect(prisma.profileSignal.createMany).not.toHaveBeenCalled();
   });
 
+  it('si otro worker creó la señal en paralelo (P2002), se cuenta como ya conocida', async () => {
+    // Carrera real: dos fuentes que comparten una URL se recolectan en paralelo y
+    // las dos pasan el `findUnique`. La que pierde choca contra el índice único y
+    // NO puede tumbar la corrida.
+    const { service, prisma } = build();
+    prisma.signal.create.mockRejectedValue({ code: 'P2002' });
+
+    const summary = await service.ingest('src-1', [draft()]);
+
+    expect(summary.alreadyKnown).toBe(1);
+    expect(summary.created).toBe(0);
+    // El fan-out lo hizo el worker que ganó la carrera.
+    expect(prisma.profileSignal.createMany).not.toHaveBeenCalled();
+  });
+
+  it('un error distinto de Prisma sí se propaga (no se traga cualquier fallo)', async () => {
+    const { service, prisma } = build();
+    prisma.signal.create.mockRejectedValue(new Error('la base se cayó'));
+
+    await expect(service.ingest('src-1', [draft()])).rejects.toThrow('la base se cayó');
+  });
+
   it('un lote vacío no toca la base', async () => {
     const { service, prisma } = build();
 

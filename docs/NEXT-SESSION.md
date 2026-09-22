@@ -32,10 +32,35 @@ Coach de redes sociales: recibe **perfiles** con objetivos, recolecta **señales
 | — | Capa de IA (ADR-004) y catálogo de redes con LinkedIn (ADR-005) | **entregado y verificado** |
 | 1 | Auth (JWT de atiende) + perfiles/cuentas/objetivos + catálogo de fuentes con `probe` + `GET /config` | **entregado y verificado E2E** (ver `docs/IMPLEMENTADO.md`) |
 | 2 | Conectores (`youtube`, `google-trends`, `rss`, `public-web`, `manual`) + dedup + `GET /signals` + `schedule-cycle`/`collect` | **entregado y verificado E2E** (ver `docs/IMPLEMENTADO.md`) |
-| 3 | Análisis (prefilter + LLM batched) + ideas/calendario + notificación | **siguiente** |
-| 4 | Borradores a demanda + "ya publiqué" + métricas manuales/CSV + `PerformanceReport` + `GET /usage` | pendiente |
+| 3 | Análisis (prefilter + LLM batched) + ideas/calendario + notificación | **entregado y verificado E2E con IA real** (ver `docs/IMPLEMENTADO.md`) |
+| 4 | Borradores a demanda + "ya publiqué" + métricas manuales/CSV + `PerformanceReport` + `GET /usage` | **siguiente** |
 | 5 | Pestaña "Social Coach" en `dashboard/` (cliente + rutas + `navItems`) | pendiente |
 | 6 | Verificación E2E final, README portafolio, git + instrucciones de deploy | parcial (README hecho) |
+
+### Fase 3 — qué quedó hecho (2026-09-22)
+
+- **Análisis** (`modules/analysis`): prefilter determinístico (nicho, frescura, tracción, red) que ordena
+  y recorta **antes** de gastar IA + **una sola llamada** por perfil con el lote (`json()` con contrato
+  Zod). `ProfileSignal.scoredAt` evita volver a pagar por la misma señal. Sin proveedor, el score
+  determinístico es el que queda (el pipeline corre sin llaves).
+- **Ideas** (`modules/ideas`): hasta `ideasPerWeek` por corrida, atadas a las señales (`IdeaSignal`), con
+  hook/ángulo/whyNow/hashtags/horarios, formato validado contra el catálogo de la red y hueco sugerido en
+  el calendario. Respaldo de **plantilla** marcado como tal. `GET/POST/PATCH/DELETE /ideas` y
+  `POST /profiles/:id/ideas` (a demanda: el camino con la generación automática apagada).
+- **Avisos** (`modules/notifications`): `NotificationPort` + adaptador `dashboard` (ADR-003), fail-soft,
+  con `SIGNALS_READY`, `IDEAS_READY` y `COLLECTION_FAILED`.
+- **Gasto**: cada llamada queda en `CoachRun` (tokens, latencia, modelo).
+- **Bugs reales que cazaron el E2E y los tests** (todos arreglados):
+  1. **Carrera en el dedup**: dos fuentes en paralelo con la misma URL canónica pasaban las dos el
+     `findUnique` y una reventaba con `Unique constraint failed on fingerprint`. Ahora el `create` maneja
+     `P2002` y lo cuenta como "ya conocida". Verificado en vivo: las 3 corridas quedan OK.
+  2. **Dos llamadas de IA por ciclo** (una por fuente): el `jobId` del análisis va por minuto + retraso,
+     así se agrupan; verificado (3 fuentes → 1 análisis de 11 señales).
+  3. **Pegar una inspiración no la analizaba**: el pegado manual ahora encola el análisis del perfil.
+  4. El puerto de IA infería el tipo de **entrada** del schema Zod (`default` → campo opcional para el
+     llamador): ahora infiere la **salida** (`z.ZodType<T, z.ZodTypeDef, any>`).
+- Verificación: **312 tests en 35 archivos**, `tsc` limpio, y el pipeline completo con IA real
+  (topScore 95 → 2 ideas generadas por el modelo, avisos en la bandeja, tokens medidos).
 
 ### Fase 2 — qué quedó hecho (2026-09-21)
 

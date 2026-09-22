@@ -336,6 +336,9 @@ model ProfileSignal {
   /// Por qué es (o no) relevante: lo que hace la sugerencia explicable.
   reasons        Json                @default("[]")
   status         ProfileSignalStatus @default(NEW)
+  /// Cuándo la juzgó el análisis. Es la marca que evita volver a pagar IA por la
+  /// misma señal (y lo que la UI muestra como "analizada hace X").
+  scoredAt       DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -346,6 +349,7 @@ model ProfileSignal {
   @@unique([signalId, profileId])
   @@index([profileId, relevanceScore])
   @@index([profileId, status])
+  @@index([profileId, scoredAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -373,6 +377,10 @@ model ContentIdea {
   status       IdeaStatus @default(IDEA)
   scheduledFor DateTime?
   publishedAt  DateTime?
+  /// `ia` = la redactó el modelo; `plantilla` = la armó el respaldo determinístico
+  /// (cuando no hay proveedor de IA o devolvió algo inválido). Se guarda para que
+  /// la UI no haga pasar una plantilla por una sugerencia del modelo.
+  source       String     @default("ia")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

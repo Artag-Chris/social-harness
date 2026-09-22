@@ -55,8 +55,15 @@ export interface LlmResult {
 export interface LlmJsonRequest<T> {
   system: string;
   user: string;
-  /** Contrato de la respuesta: se valida, no se confía. */
-  schema: z.ZodType<T>;
+  /**
+   * Contrato de la respuesta: se valida, no se confía.
+   *
+   * El genérico se infiere con el tipo de **salida** del schema (el que ya tiene los
+   * `default` aplicados). Con `z.ZodType<T>` a secas, TypeScript infiere el tipo de
+   * ENTRADA y un campo con `default` queda opcional para el llamador — que después
+   * tiene que defenderse con `?? []` en cada uso.
+   */
+  schema: z.ZodType<T, z.ZodTypeDef, any>;
   /** Nombre corto de la tarea, para logs y telemetría (p. ej. 'analyze-signals'). */
   task: string;
   /**

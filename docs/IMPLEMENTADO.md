@@ -16,15 +16,15 @@ fase. Última actualización: **2026-09-21** (Fase 1 terminada).
 | — | Capa de IA con patrón adaptador (DeepSeek/Groq/mock + embeddings) · catálogo de redes (LinkedIn) | **hecho** |
 | 1 | Auth con el JWT de atiende + perfiles/cuentas/objetivos + catálogo de fuentes con verificación | **hecho** |
 | 2 | Conectores que recolectan + ingestión con dedup + scheduler por perfil + señales | **hecho** |
-| 3 | Análisis de relevancia + ideas y calendario + avisos | pendiente |
+| 3 | Análisis de relevancia + ideas y calendario + avisos | **hecho** |
 | 4 | Borradores a demanda + "ya publiqué" + métricas y reporte de rendimiento | pendiente |
 | 5 | Pestaña "Social Coach" en el dashboard | pendiente |
 | 6 | Verificación E2E en el server + publicación de canal de avisos | pendiente |
 
-**Lo que NO existe todavía** (para no buscarlo en vano): análisis de relevancia (las señales entran con
-relevancia 0), ideas, calendario, borradores, métricas, notificaciones y la pestaña en el dashboard.
-Lo que ya funciona es la **recolección automática**: el harness trae señales solo y las reparte a los
-perfiles.
+**Lo que NO existe todavía** (para no buscarlo en vano): borradores de piezas, métricas y reporte de
+rendimiento, y la pestaña en el dashboard. Lo que ya funciona es el ciclo completo hasta las
+**sugerencias**: el harness recolecta, juzga la relevancia de cada señal según el perfil y arma ideas en
+un calendario, avisando en la bandeja.
 
 ---
 
@@ -153,6 +153,36 @@ perfiles.
 | `POST /signals/from-url` | Pegar una URL de lo que no se puede automatizar |
 | `POST /profiles/:profileId/run` | **Buscar ahora**: recolecta las fuentes del perfil (202 = encolado) |
 
+### Análisis, ideas y avisos (fase 3)
+
+- **Análisis de relevancia por perfil** (`modules/analysis`), pensado para que el gasto de IA crezca con
+  los **perfiles** y no con la cantidad de señales:
+  1. **Prefilter determinístico** (gratis): puntúa cada señal nueva por nicho (30-45), frescura (hasta
+     25), tracción (hasta 20) y si el perfil publica en esa red (10), y deja sus razones.
+  2. **Una sola llamada de IA** por perfil con el lote (`json()` con contrato Zod), no una por señal.
+  3. **Respaldo determinístico**: si no hay proveedor (o el modelo devuelve algo inválido) queda el
+     score del prefilter, así el pipeline funciona sin llaves.
+  - `ProfileSignal.scoredAt` marca lo juzgado: la corrida siguiente **no vuelve a pagar** por esa señal.
+- **Ideas y calendario** (`modules/ideas`): hasta `ideasPerWeek` ideas por corrida, cada una atada a las
+  señales que la sostienen (`IdeaSignal`), con hook, ángulo, `whyNow`, hashtags y pistas de horario. El
+  **formato se valida contra la red** (un "Reel de LinkedIn" se descarta). Se programan en un hueco
+  sugerido (días hábiles a las 10) que el usuario mueve en el calendario. Sin IA, cae a una **plantilla
+  determinística** marcada como `plantilla` (no se hace pasar por sugerencia del modelo).
+- **Avisos** (`modules/notifications`) detrás de un `NotificationPort` con adaptador `dashboard`
+  (ADR-003): señales analizadas, ideas listas y recolección fallida. Fail-soft: un canal caído no tumba
+  el trabajo ya hecho.
+- **Gasto medido**: cada llamada de IA queda en `CoachRun` (tokens de entrada/salida, latencia, modelo).
+- **Concurrencia**: el análisis agrupa las fuentes de un mismo ciclo en **una sola** llamada de IA
+  (`jobId` por minuto + retraso). Y en la ingestión, si dos fuentes traen la misma URL a la vez, la que
+  pierde la carrera contra el índice único se cuenta como "ya conocida" en vez de tumbar la corrida.
+
+| Endpoint | Para qué |
+| --- | --- |
+| `GET /ideas` | Calendario con filtros por perfil, estado, red y rango de fechas |
+| `POST /ideas` · `GET /ideas/:id` · `PATCH /ideas/:id` · `DELETE /ideas/:id` | Cargar a mano, ver, mover/aprobar/descartar/marcar publicada y borrar |
+| `POST /profiles/:profileId/ideas` | **Generar ideas ahora** (encolado, 202): es el camino cuando la generación automática está apagada |
+| `GET /notifications` · `PATCH /notifications/:id/read` · `PATCH /notifications/read-all` | Bandeja de avisos |
+
 ### Config para la UI
 
 - `GET /config`: proveedor de IA y embeddings (y si son mock), umbrales de ideas, cadencia por defecto,
@@ -209,8 +239,30 @@ Swagger: `http://localhost:3200/api/docs` (botón *Authorize* con el token del p
 
 Ejercitado contra el stack real, no solo con tests:
 
-- `npm run check` → **276 tests en 31 archivos** + `tsc --noEmit` sin errores · `npm run build` OK.
+- `npm run check` → **312 tests en 35 archivos** + `tsc --noEmit` sin errores · `npm run build` OK.
 - **Guard**: `/api/health` responde sin token; `/api/profiles` sin token → **401**.
+
+### Fase 3: análisis, ideas y avisos (con IA real)
+
+- **Pipeline completo en una corrida**: recolección → ingestión → análisis → ideas → avisos.
+  Medido con DeepSeek: análisis con **una sola llamada** por ciclo (las 3 fuentes del fixture se
+  agruparon: `analyzed: 11`, `usedLlm: true`), y con dos inspiraciones que sí tocan el nicho:
+  **`topScore: 95`** → `ideas: true` → **2 ideas creadas** por el modelo.
+- **La calidad de las ideas** (lo que devolvió el modelo con esas dos señales): título, hook, ángulo y un
+  `whyNow` atado a cada señal; plataforma y formato validados contra el catálogo
+  (`LINKEDIN/CAROUSEL` y `LINKEDIN/POST`) y programadas en días hábiles a las 10.
+- **Lo pegado a mano también se analiza**: al pegar una inspiración se encola el análisis de ese perfil.
+- **Gasto medido** en `CoachRun`: 4 filas con tokens de entrada/salida (p. ej. `analyze 929/1001`,
+  `ideas 1198/2456`) y latencias de 3-12 s. El **costo sigue en 0** porque el modelo que devuelve la API
+  (`deepseek-flash`) no está en la tabla de precios: se arregla poniendo el precio en
+  `LLM_PRICE_*_PER_1M` (ya documentado).
+- **Avisos**: `SIGNALS_READY`, `IDEAS_READY` y `COLLECTION_FAILED` en la bandeja, con `profileId` (se
+  ven bajo el perfil que corresponda).
+- **La carrera de concurrencia, verificada**: al reintentar la recolección con las señales borradas,
+  las 3 corridas quedaron **OK** y una contó el enlace compartido como `alreadyKnown: 1` (antes una
+  fallaba con `Unique constraint failed on fingerprint`).
+- **Idempotencia del análisis**: un segundo ciclo sin señales nuevas no gasta IA
+  (`skipped: "No hay señales nuevas que analizar."`).
 
 ### Fase 2: la recolección, de punta a punta
 
@@ -261,6 +313,10 @@ Con el perfil del seed apuntando a las 3 fuentes del fixture:
 | **Cada `migrate dev` genera un `DROP INDEX` del HNSW** (Prisma no puede ver ese índice) | Se aplicó una migración y el índice desapareció | El índice pasó a asegurarlo el **boot** (`ensure-database`), idempotente; y se limpia el `DROP INDEX` de cada migración |
 | Quedaron **dos migraciones duplicadas** y una vacía (por correr `migrate dev` dos veces) | Revisión de la carpeta de migraciones | Se borró la vacía, se corrigió la otra y se re-aplicó todo con `migrate reset` (que además valida la instalación limpia) |
 | Corrí `migrate reset` **en paralelo** con la edición del archivo de migración (aplicó la versión vieja) | El índice aparecía y desaparecía según la corrida | Lección: no paralelizar un reset con la edición de la migración |
+| **Carrera en el dedup**: dos fuentes en paralelo con la misma URL canónica pasaban las dos el `findUnique` y una reventaba con `Unique constraint failed on fingerprint` | El E2E: una corrida quedó FAILED con ese error y avisó `COLLECTION_FAILED` | El `create` de la señal maneja `P2002` y lo cuenta como "ya conocida" (la garantía la da el índice, no el chequeo previo) |
+| **El análisis se hacía dos veces por ciclo** (una por fuente) en vez de una por perfil | Los logs del E2E: 2 llamadas de IA para el mismo perfil | `jobId` **por minuto** + pequeño retraso: las fuentes de un ciclo se agrupan en una llamada y un ciclo posterior sí encola (sin caer en la trampa del `jobId` fijo) |
+| **Pegar una inspiración no la analizaba** hasta la próxima recolección (que podía no traer nada nuevo) | Prueba manual del flujo | El pegado manual encola el análisis del perfil |
+| El puerto de IA infería el tipo de **entrada** del schema Zod, así que un campo con `default` llegaba opcional al llamador | El compilador, en 4 lugares | `z.ZodType<T, z.ZodTypeDef, any>`: el genérico se infiere con la **salida** (con los `default` aplicados) |
 | El contenedor no recompilaba al editar (watcher muerto por el bind mount de OneDrive) | Al probar un cambio de mensaje: el archivo llegaba pero el watch no reaccionaba | Documentado con workaround (`docker compose restart api`); se probó `TSC_WATCHFILE` y **no** lo arregla |
 | El `docker:infra:up` no funcionaba solo | Falló al levantar la infra | Los scripts pasan los dos compose y arrancan/paran `postgres` |
 

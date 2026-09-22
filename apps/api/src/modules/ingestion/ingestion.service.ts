@@ -41,6 +41,11 @@ export interface IngestSummary {
   invalid: number;
   /** Perfiles a los que se repartieron las señales nuevas. */
   profileSignals: number;
+  /**
+   * Perfiles que recibieron al menos una señal nueva en esta corrida. Es a quienes
+   * hay que analizarles: el scheduler encola el análisis con esta lista.
+   */
+  touchedProfileIds: string[];
   embeddingFailures: number;
   firstEmbeddingError: string | null;
 }
@@ -59,6 +64,7 @@ export class IngestionService {
       markedAsDuplicate: 0,
       invalid: 0,
       profileSignals: 0,
+      touchedProfileIds: [],
       embeddingFailures: 0,
       firstEmbeddingError: null,
     };
@@ -109,30 +115,34 @@ export class IngestionService {
           })
         : null;
 
-      const signal = await this.prisma.signal.create({
-        data: {
-          sourceId,
-          kind: parsed.data.kind as SignalKind,
-          fingerprint,
-          canonicalUrl,
-          // La URL original se guarda tal cual (es la que se abre); la canónica
-          // queda aparte, que es la clave de dedup.
-          url: parsed.data.url,
-          title: parsed.data.title,
-          summary: parsed.data.summary ?? null,
-          author: parsed.data.author ?? null,
-          platform: parsed.data.platform ?? null,
-          publishedAt: parsed.data.publishedAt ?? null,
-          region: parsed.data.region ?? null,
-          keywords: parsed.data.keywords,
-          metrics: parsed.data.metrics as Prisma.InputJsonValue,
-          raw: parsed.data.raw as Prisma.InputJsonValue,
-          dupKey,
-          duplicateOfId: original?.id ?? null,
-          status: 'RAW',
-        },
-        select: { id: true },
+      const signal = await this.createSignal({
+        sourceId,
+        kind: parsed.data.kind as SignalKind,
+        fingerprint,
+        canonicalUrl,
+        // La URL original se guarda tal cual (es la que se abre); la canónica
+        // queda aparte, que es la clave de dedup.
+        url: parsed.data.url,
+        title: parsed.data.title,
+        summary: parsed.data.summary ?? null,
+        author: parsed.data.author ?? null,
+        platform: parsed.data.platform ?? null,
+        publishedAt: parsed.data.publishedAt ?? null,
+        region: parsed.data.region ?? null,
+        keywords: parsed.data.keywords,
+        metrics: parsed.data.metrics as Prisma.InputJsonValue,
+        raw: parsed.data.raw as Prisma.InputJsonValue,
+        dupKey,
+        duplicateOfId: original?.id ?? null,
+        status: 'RAW',
       });
+
+      // Carrera perdida: la creó otro worker en paralelo. Ese worker ya hizo el
+      // fan-out, así que acá solo se cuenta.
+      if (signal === null) {
+        summary.alreadyKnown += 1;
+        continue;
+      }
 
       if (original) summary.markedAsDuplicate += 1;
       summary.created += 1;
@@ -151,10 +161,33 @@ export class IngestionService {
           skipDuplicates: true,
         });
         summary.profileSignals += subscribers.length;
+        for (const profileId of subscribers) {
+          if (!summary.touchedProfileIds.includes(profileId)) {
+            summary.touchedProfileIds.push(profileId);
+          }
+        }
       }
     }
 
     return summary;
+  }
+
+  /**
+   * Crea la señal devolviendo `null` si otro worker se adelantó.
+   *
+   * Por qué no alcanza con el `findUnique` de arriba: dos fuentes que comparten una
+   * URL se recolectan **en paralelo** (el worker tiene concurrency 2), las dos ven
+   * "no existe" y las dos intentan crear → una choca contra el índice único. El
+   * chequeo previo sirve para no escribir de más; la garantía la da el índice, así
+   * que la carrera se maneja acá y se cuenta como "ya la teníamos".
+   */
+  private async createSignal(data: Prisma.SignalUncheckedCreateInput): Promise<{ id: string } | null> {
+    try {
+      return await this.prisma.signal.create({ data, select: { id: true } });
+    } catch (error) {
+      if (isUniqueViolation(error)) return null;
+      throw error;
+    }
   }
 
   /** Perfiles que seleccionaron esa fuente y la tienen habilitada. */
@@ -192,6 +225,11 @@ export class IngestionService {
 /** `[0.1,0.2]` — el formato que entiende pgvector. */
 export function toVectorLiteral(vector: number[]): string {
   return `[${vector.map((value) => (Number.isFinite(value) ? value : 0)).join(',')}]`;
+}
+
+/** `P2002` = violación de índice único en Prisma (acá: `Signal.fingerprint`). */
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: string }).code === 'P2002';
 }
 
 function embeddingText(draft: SignalDraft): string {

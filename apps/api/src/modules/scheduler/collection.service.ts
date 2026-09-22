@@ -1,8 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
 import { CollectionRunStatus } from '@prisma/client';
+import type { Queue } from 'bullmq';
 import { JsonLogger } from '../../common/json-logger.service';
+import { JOB_OPTIONS, QUEUES } from '../../config/queue.config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { IngestionService, type IngestSummary } from '../ingestion/ingestion.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   TREND_CONNECTORS_TOKEN,
   type SourceLimits,
@@ -13,6 +17,12 @@ export interface CollectPayload {
   sourceId: string;
   requestId: string;
 }
+
+/**
+ * Cuánto se espera antes de analizar, para agrupar las fuentes de un mismo ciclo en
+ * una sola llamada de IA.
+ */
+export const ANALYZE_COALESCE_MS = 5_000;
 
 export interface CollectOutcome {
   status: 'OK' | 'SKIPPED';
@@ -39,8 +49,10 @@ export class CollectionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ingestion: IngestionService,
+    private readonly notifications: NotificationsService,
     private readonly logger: JsonLogger,
     @Inject(TREND_CONNECTORS_TOKEN) private readonly connectors: Map<string, TrendConnectorPort>,
+    @InjectQueue(QUEUES.ANALYZE) private readonly analyzeQueue: Queue,
   ) {}
 
   async collect(payload: CollectPayload): Promise<CollectOutcome> {
@@ -77,6 +89,28 @@ export class CollectionService {
 
       const summary = await this.ingestion.ingest(source.id, result.items);
 
+      // A los perfiles que recibieron algo nuevo se les encola el análisis: una
+      // llamada de IA por perfil (no por señal), que es como está pensado el gasto.
+      // Si no entró nada nuevo, no se encola nada y nadie paga.
+      for (const profileId of summary.touchedProfileIds) {
+        await this.analyzeQueue.add(
+          'analyze',
+          { profileId },
+          {
+            ...JOB_OPTIONS,
+            /**
+             * El `jobId` va por MINUTO y el job sale con un pequeño retraso: así las
+             * fuentes de un mismo ciclo (que se recolectan en paralelo) se agrupan en
+             * una sola llamada de IA —medido: sin esto se hacían dos— y un ciclo
+             * posterior (otro minuto) sí encola un job nuevo, que es la trampa del
+             * `jobId` fijo.
+             */
+            jobId: `analyze-${profileId}-${Math.floor(Date.now() / 60_000)}`,
+            delay: ANALYZE_COALESCE_MS,
+          },
+        );
+      }
+
       await this.prisma.collectionRun.update({
         where: { id: run.id },
         data: {
@@ -109,6 +143,23 @@ export class CollectionService {
         { msg: 'La recolección falló', source: source.name, kind: source.kind, error: message },
         'Collection',
       );
+
+      // El aviso va por perfil (aparece bajo el perfil que la usa), y no tumba la
+      // corrida: `notify` es fail-soft.
+      const subscribers = await this.prisma.profileSource.findMany({
+        where: { sourceId: source.id, enabled: true },
+        select: { profileId: true },
+      });
+      for (const subscriber of subscribers) {
+        await this.notifications.notify({
+          type: 'COLLECTION_FAILED',
+          profileId: subscriber.profileId,
+          title: `Falló la recolección de "${source.name}"`,
+          body: `${message} Las demás fuentes siguen funcionando.`,
+          payload: { sourceId: source.id, kind: source.kind },
+        });
+      }
+
       throw error;
     }
   }
