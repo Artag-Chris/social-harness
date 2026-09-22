@@ -2,19 +2,23 @@
  * recover-migrations — corre en CADA boot, ANTES de `prisma migrate deploy`.
  *
  * Para qué existe: si una migración falla, Prisma deja el registro del intento en
- * `_prisma_migrations` y **se niega a aplicar cualquier otra** (P3009) hasta que
- * alguien lo resuelva a mano. En un server eso significa un arranque bloqueado con un
- * mensaje que no dice qué hacer.
+ * `_prisma_migrations` y **se niega a aplicar cualquier otra** (P3009) hasta que alguien
+ * lo resuelva a mano. En un server eso es un arranque bloqueado con un mensaje que no dice
+ * qué hacer.
  *
- * Qué hace, con una condición ESTRICTA para no ser peligroso:
- *   - Si el esquema `public` está **vacío** (0 tablas), la migración fallida no dejó
- *     nada (Prisma corre cada migración dentro de una transacción, así que se revierte
- *     entera): borra los registros de intentos sin terminar y deja seguir. No hay nada
- *     que perder porque no hay nada.
- *   - Si hay **alguna tabla**, NO toca nada: imprime el diagnóstico con los comandos y
- *     sale con error. Ahí sí puede haber datos y la decisión es de una persona.
+ * La condición para limpiar sola es **no poder perder datos**, y se verifica con dos
+ * hechos, no con una suposición:
+ *   1. Hay intentos de migración sin terminar.
+ *   2. **Ninguna** de las tablas del proyecto tiene ni una fila.
  *
- * Es idempotente: si no hay intentos fallidos, no hace nada.
+ * Si las dos se cumplen, se borran los registros del intento y las tablas/extension quedan
+ * para que la migración las rehaga: no se pierde nada porque no hay nada. Si HAY datos en
+ * cualquier tabla, no toca absolutamente nada y explica qué hacer (esa decisión es de una
+ * persona).
+ *
+ * Caso real que lo motivó: la migración `init` falló en su ÚLTIMA sentencia (un índice), así
+ * que dejó 15 tablas creadas y vacías más el registro del intento — y el arranque quedaba
+ * en bucle sin salida.
  */
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
@@ -23,6 +27,13 @@ import { resolveDatabaseUrl } from '../src/config/database-url';
 interface FailedMigration {
   migration_name: string;
   started_at: Date | null;
+}
+
+/** Solo se interpola un nombre de tabla si tiene forma de identificador. */
+function assertSafeIdentifier(identifier: string): void {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier)) {
+    throw new Error(`Nombre de tabla inesperado: "${identifier}".`);
+  }
 }
 
 async function tableExists(client: PrismaClient, name: string): Promise<boolean> {
@@ -34,14 +45,29 @@ async function tableExists(client: PrismaClient, name: string): Promise<boolean>
   return rows[0]?.exists === true;
 }
 
-async function publicTableCount(client: PrismaClient): Promise<number> {
-  // Se excluye `_prisma_migrations`, que es la libreta de Prisma y no un dato del
-  // proyecto: contarla hacía que este script nunca se animara a limpiar nada.
-  const rows = await client.$queryRawUnsafe<Array<{ count: bigint }>>(
-    "SELECT count(*) AS count FROM information_schema.tables " +
-      "WHERE table_schema = 'public' AND table_name <> '_prisma_migrations'",
+async function projectTables(client: PrismaClient): Promise<string[]> {
+  const rows = await client.$queryRawUnsafe<Array<{ table_name: string }>>(
+    "SELECT table_name FROM information_schema.tables " +
+      "WHERE table_schema = 'public' AND table_name <> '_prisma_migrations' ORDER BY table_name",
   );
-  return Number(rows[0]?.count ?? 0);
+  return rows.map((row) => row.table_name);
+}
+
+/**
+ * Devuelve la primera tabla con al menos una fila (o `null` si todas están vacías).
+ *
+ * `EXISTS (SELECT 1 …)` corta en la primera fila: no recorre la tabla entera, así que es
+ * barato incluso en tablas grandes.
+ */
+async function firstTableWithRows(client: PrismaClient, tables: string[]): Promise<string | null> {
+  for (const table of tables) {
+    assertSafeIdentifier(table);
+    const rows = await client.$queryRawUnsafe<Array<{ has: boolean }>>(
+      `SELECT EXISTS (SELECT 1 FROM "${table}") AS "has"`,
+    );
+    if (rows[0]?.has === true) return table;
+  }
+  return null;
 }
 
 async function main(): Promise<void> {
@@ -56,31 +82,33 @@ async function main(): Promise<void> {
     );
     if (failed.length === 0) return;
 
-    const tables = await publicTableCount(client);
     const names = failed.map((row) => row.migration_name).join(', ');
+    const tables = await projectTables(client);
+    const withRows = await firstTableWithRows(client, tables);
 
-    if (tables > 0) {
+    if (withRows !== null) {
       process.stderr.write(
-        `[recover-migrations] hay ${failed.length} migración(es) fallida(s) (${names}) y ${tables} tabla(s) en el esquema.\n` +
-          '[recover-migrations] NO se toca nada automáticamente: puede haber datos y esa decisión es de una persona.\n' +
-          '[recover-migrations] Si esa base es NUEVA y esas tablas son restos de la migración que falló (no tienen nada tuyo):\n' +
-          '  docker exec -it <postgres> psql -U <usuario> -d <base> -c "DROP EXTENSION IF EXISTS vector CASCADE; DROP SCHEMA public CASCADE; CREATE SCHEMA public;"\n' +
-          '  Ojo con la extensión: soltarla es necesario. Si se borra solo el esquema, `vector` queda\n' +
-          '  registrada sin sus objetos y la migración vuelve a fallar (tipo "vector" inexistente).\n' +
-          '  El boot la reinstala sola (`ensure-database`). Después, volvé a levantar y migra de cero.\n' +
-          '[recover-migrations] Si esas tablas SÍ tienen datos, resolvelo a mano:\n' +
+        `[recover-migrations] hay ${failed.length} migración(es) sin terminar (${names}) y la tabla "${withRows}" TIENE filas.\n` +
+          '[recover-migrations] NO se toca nada: puede haber datos y esa decisión es de una persona.\n' +
+          '[recover-migrations] Para resolverlo:\n' +
           '  npx prisma migrate resolve --rolled-back <migración>\n' +
-          '[recover-migrations] En los dos casos se quita el registro del INTENTO; los datos no se tocan.\n',
+          '[recover-migrations] Si esos datos NO te importan y la base es nueva, se limpia entera con:\n' +
+          '  docker compose run --rm api npx ts-node scripts/reset-database.ts --force\n',
       );
       process.exit(1);
     }
 
     console.log(
-      `[recover-migrations] ${failed.length} migración(es) fallida(s) (${names}) y esquema vacío: ` +
-        'se limpian los registros del intento (no hay datos que perder) y se reintenta migrar',
+      `[recover-migrations] ${failed.length} migración(es) sin terminar (${names}), ` +
+        `${tables.length} tabla(s) y NINGUNA con filas: se limpian los restos y se migra de nuevo ` +
+        '(no hay datos que perder)',
     );
-    await client.$executeRawUnsafe('DELETE FROM "_prisma_migrations" WHERE finished_at IS NULL');
-    console.log('[recover-migrations] listo');
+    // Se suelta la extensión además del esquema: si se borra solo el esquema, `vector`
+    // queda registrada sin sus objetos y la migración falla por el tipo inexistente.
+    await client.$executeRawUnsafe('DROP EXTENSION IF EXISTS vector CASCADE');
+    await client.$executeRawUnsafe('DROP SCHEMA IF EXISTS public CASCADE');
+    await client.$executeRawUnsafe('CREATE SCHEMA public');
+    console.log('[recover-migrations] listo: la migración se aplica desde cero');
   } finally {
     await client.$disconnect();
   }
