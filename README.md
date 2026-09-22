@@ -336,23 +336,30 @@ Applying migration `...`            (una por migración pendiente)
 
 Prisma deja la migración registrada como fallida y se niega a aplicar las siguientes. La
 intentona fallida **no deja nada en la base** (cada migración corre en una transacción),
-así que el arreglo es borrar el registro del intento:
+así que el arreglo es borrar el registro del intento.
+
+**Eso lo hace el boot solo.** `recover-migrations` corre antes de migrar y, si encuentra
+intentos sin terminar **y el esquema no tiene tablas del proyecto**, limpia esos registros
+y sigue:
+
+```
+[recover-migrations] 1 migración(es) fallida(s) (20260920000000_init) y esquema vacío: ...
+[recover-migrations] listo
+Applying migration `20260920000000_init`
+```
+
+Si **sí hay tablas** (la migración alcanzó a crear cosas antes de fallar), no toca nada y
+dice qué hacer: puede haber datos, así que esa decisión es de una persona. En ese caso,
+mirá si esas tablas tienen algo tuyo y, si la base es nueva, limpiá el esquema:
 
 ```bash
-docker exec -it atiende-postgres psql -U atiende -d socialharness
+docker exec -it atiende-postgres psql -U atiende -d socialharness \
+  -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
 ```
 
-```sql
--- Confirmá que el esquema está vacío (tiene que dar 0)
-select count(*) from information_schema.tables where table_schema = 'public';
--- Borrá el registro del intento fallido
-delete from "_prisma_migrations" where finished_at is null;
-\q
-```
-
-y volver a levantar (`docker compose up -d --build api`). El camino "oficial" de Prisma es
+y volvé a levantar (`docker compose up -d --build api`). El camino "oficial" de Prisma es
 `npx prisma migrate resolve --rolled-back <migración>` (tiene que imprimir
-"marked as rolled back"); si no lo hace, usar el borrado de arriba.
+"marked as rolled back").
 
 ### Si el índice HNSW no se puede crear
 

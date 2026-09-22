@@ -14,16 +14,20 @@ COPY . .
 RUN npx prisma generate
 EXPOSE 3200
 # En cada boot: asegura la base (+ extensión pgvector), REGENERA el cliente
-# Prisma, aplica migraciones, asegura el índice HNSW y corre el seed idempotente.
+# Prisma, recupera migraciones fallidas, aplica migraciones, asegura el índice HNSW
+# y corre el seed idempotente.
 #
-# Orden importante: `ensure-index` va DESPUÉS de `migrate deploy` porque el índice
-# HNSW vive sobre la tabla `Signal`, que en una base nueva no existe hasta migrar.
+# Orden importante:
+#   - `recover-migrations` va ANTES de migrar: si un intento anterior quedó fallido
+#     (P3009), Prisma se niega a seguir. Se limpia solo si el esquema está vacío.
+#   - `ensure-index` va DESPUÉS de migrar: el índice HNSW vive sobre la tabla `Signal`,
+#     que en una base nueva no existe hasta migrar.
 #
 # `prisma generate` va acá a propósito: en dev el schema se monta desde el host,
 # así que el cliente que quedó dentro de la imagen se queda viejo apenas cambia
 # el schema — y el síntoma es un error de tipos al correr el seed, no algo obvio.
 # Regenerarlo cuesta segundos y elimina ese pie de banco.
-CMD ["sh", "-c", "npx ts-node prisma/ensure-database.ts && npx prisma generate && npx prisma migrate deploy && npx ts-node prisma/ensure-index.ts && npx ts-node prisma/seed.ts && npm run start:dev"]
+CMD ["sh", "-c", "npx ts-node prisma/ensure-database.ts && npx prisma generate && npx ts-node prisma/recover-migrations.ts && npx prisma migrate deploy && npx ts-node prisma/ensure-index.ts && npx ts-node prisma/seed.ts && npm run start:dev"]
 
 FROM base AS builder
 ENV NODE_ENV=development
