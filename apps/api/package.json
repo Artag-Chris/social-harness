@@ -20,6 +20,7 @@
     "seed": "ts-node prisma/seed.ts",
     "llm:check": "ts-node scripts/llm-check.ts",
     "dev-token": "ts-node scripts/dev-token.ts",
+    "db:reset": "ts-node scripts/reset-database.ts",
     "check": "tsc --noEmit && vitest run --passWithNoTests"
   },
   "dependencies": {
