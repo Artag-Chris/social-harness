@@ -447,9 +447,13 @@ ALTER TABLE "Notification" ADD CONSTRAINT "Notification_profileId_fkey" FOREIGN 
 -- AddForeignKey
 ALTER TABLE "CoachRun" ADD CONSTRAINT "CoachRun_profileId_fkey" FOREIGN KEY ("profileId") REFERENCES "Profile"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
--- Índice HNSW para la similitud de señales (pgvector).
--- Prisma no puede expresar índices sobre columnas `Unsupported`, así que va a
--- mano (misma decisión que cv-harness con ResumeChunk): sin este índice, la
--- consulta de similitud hace un scan secuencial de toda la tabla de señales.
-CREATE INDEX IF NOT EXISTS "Signal_embedding_hnsw_idx"
-  ON "Signal" USING hnsw ("embedding" vector_cosine_ops);
+-- Índice HNSW para la similitud de señales: NO va acá.
+--
+-- Se creaba en esta migración y en un server con pgvector viejo (o sin soporte HNSW)
+-- hacía fallar TODA la migración `init` (P3009), dejando el arranque bloqueado por un
+-- índice que es performance, no correctitud. Ahora lo asegura el boot, después de
+-- migrar, desde `prisma/ensure-index.ts`: idempotente y tolerante (si no se puede,
+-- avisa con la versión de pgvector y la app arranca igual).
+--
+-- Equivale a: CREATE INDEX IF NOT EXISTS "Signal_embedding_hnsw_idx"
+--               ON "Signal" USING hnsw ("embedding" vector_cosine_ops);
