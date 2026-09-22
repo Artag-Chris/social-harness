@@ -12,6 +12,9 @@
  *      y las búsquedas por similitud la necesitan, y debe existir ANTES de que
  *      las migraciones creen la columna `vector(1536)`.
  *
+ * El índice HNSW NO va acá: necesita la tabla `Signal`, que todavía no existe en
+ * una base nueva. Vive en `ensure-index.ts`, que corre DESPUÉS de migrar.
+ *
  * Es idempotente: se puede correr las veces que haga falta.
  */
 import 'dotenv/config';
@@ -69,21 +72,27 @@ async function ensureVectorExtension(targetUrl: string): Promise<void> {
 }
 
 /**
- * El índice de similitud vive acá y NO en las migraciones.
+ * El índice de similitud: se asegura en el boot, DESPUÉS de migrar (desde
+ * `ensure-index.ts`).
  *
- * Por qué: es un índice HNSW sobre `Signal.embedding`, una columna que Prisma
- * marcó como `Unsupported` (no la puede tipar), así que **cada `migrate dev`
- * genera un `DROP INDEX` de este índice** y hay que acordarse de quitarlo. Al
- * asegurarlo en el boot (idempotente, igual que la extensión) el índice se
- * restaura solo y las migraciones no lo pueden romper.
+ * Quién lo crea: la migración `init` ya lo crea. Este paso es la **red de
+ * seguridad**, porque el índice es HNSW sobre `Signal.embedding` — una columna que
+ * Prisma marcó como `Unsupported` (no la puede tipar) y por eso **cada `migrate
+ * dev` genera un `DROP INDEX` de este índice**: hay que acordarse de quitarlo a
+ * mano cada vez. Asegurarlo en el boot (idempotente, igual que la extensión) hace
+ * que el índice vuelva solo si alguna migración se lo llevó puesto.
+ *
+ * Por qué después de migrar: la tabla `Signal` no existe hasta que corren las
+ * migraciones. Poniéndolo antes, el boot fallaba (`relation "Signal" does not
+ * exist`) y el contenedor reiniciaba en bucle.
  */
-async function ensureVectorIndex(targetUrl: string): Promise<void> {
+export async function ensureVectorIndex(targetUrl: string): Promise<void> {
   const target = new PrismaClient({ datasources: { db: { url: targetUrl } } });
   try {
     await target.$executeRawUnsafe(
       'CREATE INDEX IF NOT EXISTS "Signal_embedding_hnsw_idx" ON "Signal" USING hnsw ("embedding" vector_cosine_ops)',
     );
-    console.log('[ensure-database] índice HNSW de señales listo');
+    console.log('[ensure-index] índice HNSW de señales listo');
   } finally {
     await target.$disconnect();
   }
@@ -93,7 +102,6 @@ async function main(): Promise<void> {
   const targetUrl = resolveDatabaseUrl();
   const database = await ensureDatabaseExists(targetUrl);
   await ensureVectorExtension(targetUrl);
-  await ensureVectorIndex(targetUrl);
   console.log(`[ensure-database] listo para migrar sobre "${database}"`);
 }
 

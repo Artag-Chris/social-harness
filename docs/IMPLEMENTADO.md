@@ -268,6 +268,10 @@ Ejercitado contra el stack real, no solo con tests:
 
 - `npm run check` → **341 tests en 39 archivos** + `tsc --noEmit` sin errores · `npm run build` OK.
 - **Guard**: `/api/health` responde sin token; `/api/profiles` sin token → **401**.
+- **Arranque desde base vacía** (el escenario del server): `ensure-database` (base + extensión) →
+  `migrate deploy` (las 7 migraciones) → `ensure-index` (índice HNSW) → seed → escuchando, con **0
+  reinicios** del contenedor. Antes de este arreglo, ese mismo arranque fallaba con `relation "Signal"
+  does not exist` y reiniciaba en bucle.
 
 ### Fases 4 y 5: borradores, medición y el dashboard (con IA real)
 
@@ -370,6 +374,7 @@ Con el perfil del seed apuntando a las 3 fuentes del fixture:
 | El prompt del reporte no decía **qué significa** `engagementRate`, así que el modelo lo comparó con los conteos crudos y lo declaró inconsistente | Lo detectó el propio modelo en el reporte | El prompt aclara que la tasa la reporta la plataforma y viene promediada, y le prohíbe recalcularla |
 | El contenedor no recompilaba al editar (watcher muerto por el bind mount de OneDrive) | Al probar un cambio de mensaje: el archivo llegaba pero el watch no reaccionaba | Documentado con workaround (`docker compose restart api`); se probó `TSC_WATCHFILE` y **no** lo arregla |
 | El `docker:infra:up` no funcionaba solo | Falló al levantar la infra | Los scripts pasan los dos compose y arrancan/paran `postgres` |
+| **El índice HNSW se creaba ANTES de migrar**: en una base vacía la tabla `Signal` no existe todavía → `relation "Signal" does not exist` (42P01) → el script salía con 1 y el contenedor **reiniciaba en bucle** | Al desplegar en el server (base nueva). Localmente no se veía porque la base ya tenía las tablas de fases anteriores | `ensure-database` quedó con lo que va antes de migrar (base + extensión); el índice pasó a `ensure-index.ts`, que corre **después** de `migrate deploy` y es tolerante (avisa y sigue: el índice es performance, no correctitud). Verificado con base vacía |
 
 ---
 
