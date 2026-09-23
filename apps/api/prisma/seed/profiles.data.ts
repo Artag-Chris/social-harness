@@ -62,19 +62,24 @@ export const DEMO_PROFILE = {
       id: 'seed_objective_posts',
       metric: 'POSTS_PER_WEEK',
       targetValue: 3,
+      // `dueDays` en vez de una fecha fija: un seed con fecha fija nace vencido, y el
+      // gap de objetivos necesita un plazo para poder decir "¿llegás o no?".
+      dueDays: 90,
       notes: 'Constancia antes que volumen: 3 piezas por semana.',
     },
     {
       id: 'seed_objective_engagement',
       metric: 'ENGAGEMENT_RATE',
       targetValue: 4,
+      dueDays: 90,
       notes: 'Interacción objetivo sobre el alcance (en %).',
     },
     {
       id: 'seed_objective_followers',
       metric: 'FOLLOWERS',
       targetValue: 5000,
-      notes: 'Suma de las tres cuentas.',
+      dueDays: 180,
+      notes: 'Suma de las cuentas del perfil.',
     },
   ],
 } as const;

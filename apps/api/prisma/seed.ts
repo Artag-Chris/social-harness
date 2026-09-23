@@ -59,6 +59,10 @@ async function seedDemoProfile(): Promise<string> {
       profileId: DEMO_PROFILE.id,
       metric: objective.metric as ObjectiveMetric,
       targetValue: objective.targetValue,
+      // El seed es DUEÑO del perfil demo: recalcula la fecha en cada boot a propósito (así
+      // el ejemplo siempre tiene un plazo con el que se puede leer el gap de objetivos).
+      // Los objetivos de un perfil real no pasan por acá.
+      dueDate: new Date(Date.now() + objective.dueDays * 86_400_000),
       notes: objective.notes,
     };
     await prisma.objective.upsert({
