@@ -9,7 +9,7 @@ import { PerformanceService } from './performance.service';
  *  1. Sin métricas cargadas NO se llama a la IA (un reporte sin datos es una opinión).
  *  2. Los deltas los calcula el código, no el modelo.
  */
-function build(options: { snapshots?: unknown[]; llmNull?: boolean } = {}) {
+function build(options: { snapshots?: unknown[]; llmNull?: boolean; objectives?: unknown[] } = {}) {
   const snapshots = options.snapshots ?? [
     { socialAccountId: 'a-1', capturedAt: new Date('2026-09-01'), followers: 1000, reach: 40000, engagementRate: 3, likes: 300 },
     { socialAccountId: 'a-1', capturedAt: new Date('2026-09-20'), followers: 1150, reach: 52000, engagementRate: 4, likes: 500 },
@@ -23,7 +23,7 @@ function build(options: { snapshots?: unknown[]; llmNull?: boolean } = {}) {
         niche: ['ia'],
         audience: 'pymes',
         accounts: [{ id: 'a-1', platform: 'LINKEDIN', handle: '@marca' }],
-        objectives: [],
+        objectives: options.objectives ?? [],
       }),
     },
     metricSnapshot: { findMany: vi.fn().mockResolvedValue(snapshots) },
@@ -145,4 +145,36 @@ describe('PerformanceService', () => {
     const created = prisma.performanceReport.create.mock.calls[0]?.[0].data;
     expect(created.whatDidnt.join(' ')).toContain('No se marcó ninguna publicación');
   });
+
+  it('le pasa el gap de objetivos YA CALCULADO al modelo (no lo deja hacer cuentas)', async () => {
+    const { service, llm } = build({ objectives: [objectiveFollows()] });
+
+    await service.runForProfile('p-1');
+
+    const prompt = (llm.json as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].user as string;
+    expect(prompt).toContain('Crecimiento y objetivos');
+    expect(prompt).toContain('seguidores: 1000 → 1150');
+    expect(prompt).toContain('FOLLOWERS: objetivo 5000');
+    expect(prompt).toContain('NO llegás');
+  });
+
+  it('la plantilla sin IA también dice que no llegás al objetivo', async () => {
+    const { service, prisma } = build({ llmNull: true, objectives: [objectiveFollows()] });
+
+    await service.runForProfile('p-1');
+
+    const created = prisma.performanceReport.create.mock.calls[0]?.[0].data;
+    // El gap es aritmética: no tiene sentido que la plantilla lo omita.
+    expect(created.adjustments.join(' ')).toContain('FOLLOWERS');
+  });
 });
+
+/** Objetivo de seguidores que los números de prueba NO alcanzan (1000 → 1150 contra 5000). */
+function objectiveFollows() {
+  return {
+    metric: 'FOLLOWERS',
+    targetValue: 5000,
+    currentValue: null,
+    dueDate: new Date(Date.now() + 45 * 86_400_000),
+  };
+}

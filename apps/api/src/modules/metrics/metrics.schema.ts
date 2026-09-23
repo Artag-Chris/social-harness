@@ -49,8 +49,17 @@ export const MetricListQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(365).default(90),
 });
 
+/**
+ * Ventana del cálculo de crecimiento. El mínimo es 7 días porque el ritmo se expresa por
+ * semana: con menos, la extrapolación sería ruido con formato de dato.
+ */
+export const GrowthQuerySchema = z.object({
+  days: z.coerce.number().int().min(7).max(365).default(30),
+});
+
 export type MetricSnapshotInput = z.infer<typeof MetricSnapshotInputSchema>;
 export type MetricListQuery = z.infer<typeof MetricListQuerySchema>;
+export type GrowthQuery = z.infer<typeof GrowthQuerySchema>;
 
 /** Un snapshot ya normalizado (fecha al día, números limpios). */
 export interface MetricRow {

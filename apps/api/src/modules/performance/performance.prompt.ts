@@ -49,6 +49,14 @@ export interface PerformancePromptInput {
   }>;
   published: Array<{ title: string; platform: string; format: string; publishedAt: string }>;
   topSignals: Array<{ title: string; score: number }>;
+  /**
+   * Crecimiento y gap de objetivos, **ya calculados** (`metrics/growth.ts`).
+   *
+   * Van resueltos a propósito: cuánto falta para un objetivo, en cuánto tiempo y a qué
+   * ritmo irías es aritmética. Si el modelo la rehiciera, podría contradecir el número que
+   * el usuario ve en el dashboard.
+   */
+  growth: string[];
 }
 
 export function buildPerformanceSystemPrompt(): string {
@@ -58,12 +66,14 @@ export function buildPerformanceSystemPrompt(): string {
     'No inventes números que no estén en lo que te paso, ni compares contra períodos que no te di.',
     'Sobre `engagement`: es la tasa que reporta la plataforma (la arma quien exporta las métricas: puede ser interacciones sobre impresiones o sobre alcance) y acá viene **promediada** entre los días cargados. No la recalcules ni la corrijas: si te parece inconsistente con los conteos crudos, decí que hay que definir la fórmula, no la cambies por tu cuenta.',
     'Cada punto tiene que ser accionable y concreto: "publicá 3 veces por semana en lugar de 1" sirve; "mejorá el engagement" no.',
+    'El crecimiento y los objetivos te llegan YA CALCULADOS: cuánto falta, en cuántos días, a qué ritmo tendrías que ir y a qué ritmo vas. No rehagas esa cuenta ni la contradigas. Si el veredicto dice que no llegás, tu trabajo es decir qué cambiar, no recalcular.',
+    'Si te paso acciones de comunidad, son ACTIVIDAD, no resultado: podés decir que el movimiento "coincide con" esa actividad, nunca que la causó.',
     'Escribí en español, sin adornos y sin felicitar al usuario.',
   ].join('\n');
 }
 
 export function buildPerformanceUserPrompt(input: PerformancePromptInput): string {
-  const { profile, period, accounts, published, topSignals } = input;
+  const { profile, period, accounts, published, topSignals, growth } = input;
 
   const accountLines = accounts
     .map((account) => {
@@ -111,6 +121,9 @@ export function buildPerformanceUserPrompt(input: PerformancePromptInput): strin
     '',
     'Lo que estaba sonando (contexto, no resultado):',
     signalLines,
+    '',
+    'Crecimiento y objetivos (calculado; interpretalo, no lo recalcules):',
+    growth.length > 0 ? growth.join('\n') : '(sin objetivos declarados)',
     '',
     'Decime qué funcionó, qué no y qué ajustar en el próximo período.',
   ].join('\n');

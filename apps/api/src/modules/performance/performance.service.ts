@@ -7,6 +7,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AccessScope } from '../auth/access-scope.service';
 import type { AuthPayload } from '../auth/auth.types';
 import { LLM_PROVIDER_TOKEN, type LlmProviderPort } from '../llm/llm-provider.port';
+import {
+  buildAccountGrowth,
+  buildGrowth,
+  formatGrowthForPrompt,
+  formatGrowthForTemplate,
+  type AccountGrowth,
+} from '../metrics/growth';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
   PERFORMANCE_HINT,
@@ -38,20 +45,6 @@ export interface PerformanceOutcome {
   usedLlm: boolean;
   skipped?: string;
   measures: { accounts: number; snapshots: number; published: number };
-}
-
-export interface AccountDelta {
-  platform: string;
-  handle: string;
-  followers?: { from: number; to: number };
-  reach?: number;
-  impressions?: number;
-  engagementRate?: number;
-  likes?: number;
-  comments?: number;
-  shares?: number;
-  saves?: number;
-  daysMeasured: number;
 }
 
 @Injectable()
@@ -118,41 +111,19 @@ export class PerformanceService {
       }),
     ]);
 
-    const accountsById = new Map(profile.accounts.map((account) => [account.id, account]));
-    const deltas: AccountDelta[] = [];
-    const grouped = new Map<string, typeof snapshots>();
+    // Los números por cuenta salen del MISMO cálculo que usa el gap de objetivos
+    // (`metrics/growth.ts`): una sola definición de "alcance acumulado" o de "engagement
+    // promedio" en todo el harness, así el reporte no puede contradecir al dashboard.
+    const deltas: AccountGrowth[] = buildAccountGrowth(profile.accounts, snapshots);
 
-    for (const snapshot of snapshots) {
-      const list = grouped.get(snapshot.socialAccountId) ?? [];
-      list.push(snapshot);
-      grouped.set(snapshot.socialAccountId, list);
-    }
-
-    for (const [accountId, list] of grouped) {
-      const account = accountsById.get(accountId);
-      if (!account) continue;
-      const first = list[0];
-      const last = list[list.length - 1];
-      if (!first || !last) continue;
-
-      deltas.push({
-        platform: account.platform,
-        handle: account.handle,
-        ...(first.followers !== null && last.followers !== null
-          ? { followers: { from: first.followers, to: last.followers } }
-          : {}),
-        ...(sum(list, 'reach') === undefined ? {} : { reach: sum(list, 'reach') }),
-        ...(sum(list, 'impressions') === undefined ? {} : { impressions: sum(list, 'impressions') }),
-        ...(average(list, 'engagementRate') === undefined
-          ? {}
-          : { engagementRate: average(list, 'engagementRate') }),
-        ...(sum(list, 'likes') === undefined ? {} : { likes: sum(list, 'likes') }),
-        ...(sum(list, 'comments') === undefined ? {} : { comments: sum(list, 'comments') }),
-        ...(sum(list, 'shares') === undefined ? {} : { shares: sum(list, 'shares') }),
-        ...(sum(list, 'saves') === undefined ? {} : { saves: sum(list, 'saves') }),
-        daysMeasured: list.length,
-      });
-    }
+    const growth = buildGrowth({
+      accounts: profile.accounts,
+      objectives: profile.objectives,
+      snapshots,
+      // POSTS_PER_WEEK no sale de las métricas: sale de las publicaciones marcadas.
+      measuredByCode: { POSTS_PER_WEEK: round(published.length / (days / 7), 2) },
+    });
+    const growthLines = formatGrowthForPrompt(growth);
 
     const llmResult = await this.llm.json({
       system: buildPerformanceSystemPrompt(),
@@ -174,6 +145,7 @@ export class PerformanceService {
           publishedAt: (idea.publishedAt ?? new Date()).toISOString().slice(0, 10),
         })),
         topSignals: topSignals.map((row) => ({ title: row.signal.title, score: row.relevanceScore })),
+        growth: growthLines,
       }),
       schema: PerformanceReportSchema,
       hint: PERFORMANCE_HINT,
@@ -182,7 +154,7 @@ export class PerformanceService {
 
     const content: PerformanceReportContent = llmResult
       ? normalizeReport(llmResult.data)
-      : templateReport(deltas, published.length);
+      : templateReport(deltas, published.length, formatGrowthForTemplate(growth));
 
     const report = await this.prisma.performanceReport.create({
       data: {
@@ -251,19 +223,9 @@ export class PerformanceService {
   }
 }
 
-function sum(rows: Array<Record<string, unknown>>, field: string): number | undefined {
-  const values = rows
-    .map((row) => row[field])
-    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
-  return values.length === 0 ? undefined : values.reduce((total, value) => total + value, 0);
-}
-
-function average(rows: Array<Record<string, unknown>>, field: string): number | undefined {
-  const values = rows
-    .map((row) => row[field])
-    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
-  if (values.length === 0) return undefined;
-  return Math.round((values.reduce((total, value) => total + value, 0) / values.length) * 100) / 100;
+function round(value: number, decimals: number): number {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
 }
 
 function normalizeReport(raw: PerformanceReportContent): PerformanceReportContent {
@@ -281,7 +243,11 @@ function normalizeReport(raw: PerformanceReportContent): PerformanceReportConten
  * Es corto y sin interpretación de causa (no puede saber por qué subió), pero dice lo
  * que los datos sí muestran y qué falta para poder concluir algo.
  */
-function templateReport(deltas: AccountDelta[], publishedCount: number): PerformanceReportContent {
+function templateReport(
+  deltas: AccountGrowth[],
+  publishedCount: number,
+  objectiveGaps: string[],
+): PerformanceReportContent {
   const worked: string[] = [];
   const didnt: string[] = [];
   const adjustments: string[] = [];
@@ -313,6 +279,9 @@ function templateReport(deltas: AccountDelta[], publishedCount: number): Perform
   if (deltas.some((delta) => delta.followers === undefined)) {
     adjustments.push('Faltan seguidores en algunas cuentas: sin ese número no se puede medir el crecimiento.');
   }
+  // El gap de objetivos es aritmética, así que se dice igual sin IA: que la plantilla lo
+  // omita sería esconder justo lo que el usuario necesita saber.
+  adjustments.unshift(...objectiveGaps);
 
   return {
     summary:

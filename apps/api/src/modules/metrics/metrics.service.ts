@@ -1,10 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { MetricSource, type Prisma } from '@prisma/client';
+import { IdeaStatus, MetricSource, type Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AccessScope } from '../auth/access-scope.service';
 import type { AuthPayload } from '../auth/auth.types';
+import { buildGrowth, type Growth } from './growth';
 import { normalizeToDay, parseMetricsCsv } from './metrics.csv';
-import type { MetricListQuery, MetricRow, MetricSnapshotInput } from './metrics.schema';
+import type { GrowthQuery, MetricListQuery, MetricRow, MetricSnapshotInput } from './metrics.schema';
 
 /**
  * Métricas de las cuentas (hoy, cargadas a mano).
@@ -61,6 +62,46 @@ export class MetricsService {
     return this.prisma.metricSnapshot.findMany({
       where: { socialAccountId: accountId, capturedAt: { gte: since } },
       orderBy: { capturedAt: 'asc' },
+    });
+  }
+
+  /**
+   * Crecimiento del perfil y gap de objetivos.
+   *
+   * No usa IA y no cuesta nada: es aritmética sobre el histórico (ver `growth.ts`). Por eso
+   * el dashboard puede pedirlo todas las veces que quiera.
+   */
+  async growth(user: AuthPayload, profileId: string, query: GrowthQuery): Promise<Growth> {
+    await this.access.assertProfile(user, profileId);
+
+    const profile = await this.prisma.profile.findUnique({
+      where: { id: profileId },
+      select: { id: true, accounts: true, objectives: true },
+    });
+
+    // `assertProfile` ya garantiza que existe y que el usuario puede verlo.
+    if (!profile) throw new NotFoundException(`El perfil ${profileId} no existe.`);
+
+    const since = new Date(Date.now() - query.days * 24 * 60 * 60 * 1000);
+
+    const [snapshots, published] = await Promise.all([
+      this.prisma.metricSnapshot.findMany({
+        where: { profileId, capturedAt: { gte: since } },
+        orderBy: { capturedAt: 'asc' },
+      }),
+      this.prisma.contentIdea.count({
+        where: { profileId, status: IdeaStatus.PUBLISHED, publishedAt: { gte: since } },
+      }),
+    ]);
+
+    return buildGrowth({
+      accounts: profile.accounts,
+      objectives: profile.objectives,
+      snapshots,
+      // POSTS_PER_WEEK no sale de las métricas: sale de las publicaciones marcadas.
+      measuredByCode: {
+        POSTS_PER_WEEK: Math.round((published / (query.days / 7)) * 100) / 100,
+      },
     });
   }
 
