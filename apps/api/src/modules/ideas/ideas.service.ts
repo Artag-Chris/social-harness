@@ -7,6 +7,7 @@ import { JOB_OPTIONS, QUEUES } from '../../config/queue.config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AccessScope } from '../auth/access-scope.service';
 import type { AuthPayload } from '../auth/auth.types';
+import { CommunityService } from '../community/community.service';
 import {
   FORMAT_KEYS,
   PLATFORM_KEYS,
@@ -62,6 +63,7 @@ export class IdeasService {
     private readonly prisma: PrismaService,
     private readonly access: AccessScope,
     private readonly notifications: NotificationsService,
+    private readonly community: CommunityService,
     @Inject(LLM_PROVIDER_TOKEN) private readonly llm: LlmProviderPort,
     @InjectQueue(QUEUES.IDEAS) private readonly ideasQueue: Queue,
   ) {}
@@ -129,6 +131,10 @@ export class IdeasService {
       };
     }
 
+    // La audiencia estructurada es el objeto que comparte el coach de comunidad: entra acá
+    // para que cada idea le hable a un segmento y no a "la audiencia" en general.
+    const audienceSegments = await this.community.segmentsForPrompt(profileId);
+
     const llmResult = await this.llm.json({
       system: buildIdeasSystemPrompt(),
       user: buildIdeasUserPrompt({
@@ -144,6 +150,7 @@ export class IdeasService {
           ),
         },
         count: wanted,
+        audienceSegments,
         signals: usable.map((row) => ({
           id: row.signalId,
           title: row.signal.title,

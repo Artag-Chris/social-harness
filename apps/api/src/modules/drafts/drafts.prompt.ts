@@ -48,6 +48,11 @@ export interface DraftPromptInput {
     hashtags: string[];
   };
   signals: Array<{ title: string; summary: string | null; url: string | null }>;
+  /**
+   * Segmentos de audiencia activos, en texto (`community.prompt.ts`): el mismo objeto que
+   * usa el coach de comunidad es el que hace que el borrador hable como le habla a alguien.
+   */
+  audienceSegments: string[];
 }
 
 export function buildDraftSystemPrompt(): string {
@@ -55,13 +60,14 @@ export function buildDraftSystemPrompt(): string {
     'Sos un redactor de contenido para redes sociales. Escribís una pieza para una red concreta, en el idioma y el tono del perfil.',
     'Escribís como escribe una persona: frases cortas, sin relleno, sin "en el mundo actual", sin listas de tres adjetivos, sin promesas vacías.',
     'PROHIBIDO inventar datos, cifras, casos, clientes o estudios que no estén en el material que te doy. Si falta un dato, se escribe sin ese dato.',
+    'Si te paso segmentos de audiencia, escribí para UNO —el que le queda mejor a la idea— usando sus palabras y atendiendo su objeción. Un texto que le habla "a todos" se nota y no le sirve a nadie.',
     'Nada de marcar que lo escribió una IA, ni disclaimers, ni emojis decorativos.',
     'Devuelves SOLO lo que pide el contrato: el texto listo para pegar, no una explicación de lo que harías.',
   ].join('\n');
 }
 
 export function buildDraftUserPrompt(input: DraftPromptInput): string {
-  const { profile, idea, signals } = input;
+  const { profile, idea, signals, audienceSegments } = input;
   const platformDef = platform(idea.platform as never);
   const formatDef = format(idea.format as never);
 
@@ -79,6 +85,9 @@ export function buildDraftUserPrompt(input: DraftPromptInput): string {
     `Audiencia: ${profile.audience ?? 'no declarada'}`,
     `Tono: ${profile.voice ?? 'no declarado'}`,
     `Idioma: ${profile.language}`,
+    '',
+    'A quién le hablás (elegí UNO y escribí para esa persona):',
+    audienceSegments.length > 0 ? audienceSegments.join('\n') : '(sin segmentos cargados todavía)',
     '',
     `Red: ${platformDef.label} · Formato: ${formatLabel(idea.format as never)}`,
     `Qué funciona en ${platformDef.label}: ${platformDef.contentHint}`,

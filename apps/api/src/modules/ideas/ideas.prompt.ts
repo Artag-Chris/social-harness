@@ -62,6 +62,13 @@ export interface IdeasPromptInput {
   };
   /** Cuántas ideas se le piden (freno de costo por perfil). */
   count: number;
+  /**
+   * Segmentos de audiencia activos, en texto (`community.prompt.ts`).
+   *
+   * Es lo que hace que una idea no le hable "a la audiencia" en general: se le pide al
+   * modelo que elija UN segmento por idea.
+   */
+  audienceSegments: string[];
   signals: Array<{
     id: string;
     title: string;
@@ -79,13 +86,14 @@ export function buildIdeasSystemPrompt(): string {
     'Cada idea tiene que poder ejecutarse mañana: sin generalidades, sin "hablá de tu experiencia" como único ángulo.',
     'Apoyate en las señales que te doy y citá sus ids: una idea sin señal es una opinión.',
     'El formato tiene que existir en la red elegida (te paso la lista). En LinkedIn un "Reel" no existe: es un video o un documento.',
+    'Si te paso segmentos de audiencia, cada idea le habla a UNO (el más afín a la señal) y el enfoque tiene que notarse: una idea que sirve "para todos" no sirve para nadie.',
     'Escribí en el idioma del perfil y con su tono. No inventes datos, cifras ni casos que no estén en las señales.',
     'Devolvés menos ideas si las señales no dan para más: es mejor 2 buenas que 5 de relleno.',
   ].join('\n');
 }
 
 export function buildIdeasUserPrompt(input: IdeasPromptInput): string {
-  const { profile, signals, count } = input;
+  const { profile, signals, count, audienceSegments } = input;
 
   const catalog = profile.platforms.length
     ? profile.platforms
@@ -111,6 +119,11 @@ export function buildIdeasUserPrompt(input: IdeasPromptInput): string {
     `Tono: ${profile.voice ?? 'no declarado'}`,
     `Idioma: ${profile.language}`,
     `Objetivos: ${profile.objectives.length > 0 ? profile.objectives.join('; ') : 'sin objetivos declarados'}`,
+    '',
+    'Tu audiencia (cada idea le habla a UNO de estos segmentos, no a todos):',
+    audienceSegments.length > 0
+      ? audienceSegments.join('\n')
+      : '(sin segmentos cargados: la pestaña Comunidad los propone)',
     '',
     'Formatos y horarios por red:',
     catalog,

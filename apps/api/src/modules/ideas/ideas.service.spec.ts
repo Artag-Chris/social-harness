@@ -79,16 +79,20 @@ function build(options: { candidates?: unknown[]; alreadyUsed?: string[]; llmNul
   const queue = { add: vi.fn().mockResolvedValue({ id: 'job' }) } as unknown as Queue;
   const notifications = { notify: vi.fn().mockResolvedValue(undefined) };
   const access = { assertProfile: vi.fn().mockResolvedValue(undefined) };
+  // La audiencia la produce el coach de comunidad; acá alcanza con que devuelva líneas.
+  const community = { segmentsForPrompt: vi.fn().mockResolvedValue([]) };
 
   return {
     prisma,
     llm,
+    community,
     queue: queue as unknown as { add: ReturnType<typeof vi.fn> },
     notifications,
     service: new IdeasService(
       prisma as unknown as PrismaService,
       access as never,
       notifications as never,
+      community as never,
       llm,
       queue,
     ),

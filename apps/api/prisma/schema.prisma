@@ -136,19 +136,57 @@ model Profile {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  accounts        SocialAccount[]
-  objectives      Objective[]
-  sources         ProfileSource[]
-  profileSignals  ProfileSignal[]
-  ideas           ContentIdea[]
-  metricSnapshots MetricSnapshot[]
-  reports         PerformanceReport[]
-  coachRuns       CoachRun[]
-  notifications   Notification[]
+  accounts         SocialAccount[]
+  objectives       Objective[]
+  sources          ProfileSource[]
+  profileSignals   ProfileSignal[]
+  ideas            ContentIdea[]
+  metricSnapshots  MetricSnapshot[]
+  reports          PerformanceReport[]
+  coachRuns        CoachRun[]
+  notifications    Notification[]
+  audienceSegments AudienceSegment[]
 
   @@index([ownerId])
   @@index([businessId])
   @@index([nextRunAt])
+}
+
+/// Segmento de audiencia: a quién le habla el perfil.
+///
+/// Es el objeto que COMPARTEN los dos coaches y por eso vive en su propio modelo y no en
+/// un texto suelto: el de contenido lo usa para escribir (ideas, borradores) y para
+/// interpretar (reporte), y el de comunidad lo produce y lo usa para elegir dónde
+/// participar. `Profile.audience` sigue existiendo como frase libre; esto es la versión
+/// estructurada, que es la que hace que una idea deje de ser genérica.
+model AudienceSegment {
+  id          String @id @default(cuid())
+  profileId   String
+  name        String
+  description String
+  /// Dolores, deseos y objeciones: el material que hace que una idea no sea genérica.
+  pains       String[] @default([])
+  desires     String[] @default([])
+  objections  String[] @default([])
+  /// Dónde está esa gente (subreddits, grupos, hashtags, canales).
+  channels    String[] @default([])
+  /// Cómo le habla (registro, jerga que usa).
+  languageTips String?
+  /// En qué se basa: señales, ideas publicadas, objetivos. Es lo que hace la propuesta
+  /// auditable en vez de una invención del modelo.
+  evidence    Json @default("[]")
+  /// `ia` | `manual` | `plantilla` — misma regla que `ContentIdea.source`: no disfrazar
+  /// una plantilla de sugerencia del modelo. Los `manual` nunca se archivan solos.
+  source      String   @default("ia")
+  archivedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, name])
+  @@index([profileId, archivedAt])
 }
 
 /// Una cuenta social del perfil (Instagram / TikTok / YouTube / LinkedIn). Un

@@ -57,6 +57,11 @@ export interface PerformancePromptInput {
    * el usuario ve en el dashboard.
    */
   growth: string[];
+  /**
+   * Segmentos de audiencia activos (`community.prompt.ts`): las recomendaciones tienen que
+   * poder decirle a QUIÉN, no solo qué hacer.
+   */
+  audienceSegments: string[];
 }
 
 export function buildPerformanceSystemPrompt(): string {
@@ -67,13 +72,14 @@ export function buildPerformanceSystemPrompt(): string {
     'Sobre `engagement`: es la tasa que reporta la plataforma (la arma quien exporta las métricas: puede ser interacciones sobre impresiones o sobre alcance) y acá viene **promediada** entre los días cargados. No la recalcules ni la corrijas: si te parece inconsistente con los conteos crudos, decí que hay que definir la fórmula, no la cambies por tu cuenta.',
     'Cada punto tiene que ser accionable y concreto: "publicá 3 veces por semana en lugar de 1" sirve; "mejorá el engagement" no.',
     'El crecimiento y los objetivos te llegan YA CALCULADOS: cuánto falta, en cuántos días, a qué ritmo tendrías que ir y a qué ritmo vas. No rehagas esa cuenta ni la contradigas. Si el veredicto dice que no llegás, tu trabajo es decir qué cambiar, no recalcular.',
+    'Si te paso segmentos de audiencia, decí a QUIÉN le habla cada ajuste ("para el que recién arranca..."), no "para tu audiencia": un consejo sin destinatario no se puede ejecutar.',
     'Si te paso acciones de comunidad, son ACTIVIDAD, no resultado: podés decir que el movimiento "coincide con" esa actividad, nunca que la causó.',
     'Escribí en español, sin adornos y sin felicitar al usuario.',
   ].join('\n');
 }
 
 export function buildPerformanceUserPrompt(input: PerformancePromptInput): string {
-  const { profile, period, accounts, published, topSignals, growth } = input;
+  const { profile, period, accounts, published, topSignals, growth, audienceSegments } = input;
 
   const accountLines = accounts
     .map((account) => {
@@ -110,6 +116,9 @@ export function buildPerformanceUserPrompt(input: PerformancePromptInput): strin
     `Nicho: ${profile.niche.length > 0 ? profile.niche.join(', ') : 'sin declarar'}`,
     `Audiencia: ${profile.audience ?? 'no declarada'}`,
     `Objetivos: ${profile.objectives.length > 0 ? profile.objectives.join('; ') : 'sin objetivos declarados'}`,
+    '',
+    'A quién le habla el perfil (segmentos de audiencia):',
+    audienceSegments.length > 0 ? audienceSegments.join('\n') : '(sin segmentos cargados todavía)',
     '',
     `Período: ${period.from} → ${period.to} (${period.days} días)`,
     '',

@@ -4,6 +4,7 @@ import { LoggingModule } from './common/logging.module';
 import { AnalysisModule } from './modules/analysis/analysis.module';
 import { AppConfigModule } from './modules/app-config/app-config.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { CommunityModule } from './modules/community/community.module';
 import { ConnectorsModule } from './modules/connectors/connectors.module';
 import { DraftsModule } from './modules/drafts/drafts.module';
 import { EmbeddingsModule } from './modules/embeddings/embeddings.module';
@@ -53,6 +54,7 @@ import { PrismaModule } from './prisma/prisma.module';
     DraftsModule,
     MetricsModule,
     PerformanceModule,
+    CommunityModule,
     UsageModule,
     LlmModule,
     EmbeddingsModule,

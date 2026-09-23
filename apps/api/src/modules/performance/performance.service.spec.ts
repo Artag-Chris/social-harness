@@ -67,15 +67,19 @@ function build(options: { snapshots?: unknown[]; llmNull?: boolean; objectives?:
   const queue = { add: vi.fn().mockResolvedValue({ id: 'job' }) } as unknown as Queue;
   const notifications = { notify: vi.fn().mockResolvedValue(undefined) };
   const access = { assertProfile: vi.fn().mockResolvedValue(undefined) };
+  // La audiencia la produce el coach de comunidad; acá alcanza con que devuelva líneas.
+  const community = { segmentsForPrompt: vi.fn().mockResolvedValue([]) };
 
   return {
     prisma,
     llm,
     notifications,
+    community,
     service: new PerformanceService(
       prisma as unknown as PrismaService,
       access as never,
       notifications as never,
+      community as never,
       llm,
       queue,
     ),
@@ -166,6 +170,19 @@ describe('PerformanceService', () => {
     const created = prisma.performanceReport.create.mock.calls[0]?.[0].data;
     // El gap es aritmética: no tiene sentido que la plantilla lo omita.
     expect(created.adjustments.join(' ')).toContain('FOLLOWERS');
+  });
+
+  it('las recomendaciones reciben a quién le hablan (los segmentos de audiencia)', async () => {
+    const { service, llm, community } = build();
+    community.segmentsForPrompt.mockResolvedValue([
+      '- Pyme que hace todo solo: sin equipo de marketing.\n  le duele: no tiene tiempo',
+    ]);
+
+    await service.runForProfile('p-1');
+
+    const prompt = (llm.json as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].user as string;
+    expect(prompt).toContain('A quién le habla el perfil');
+    expect(prompt).toContain('Pyme que hace todo solo');
   });
 });
 

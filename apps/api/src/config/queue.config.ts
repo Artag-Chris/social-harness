@@ -21,6 +21,8 @@ export const QUEUES = {
   PERFORMANCE: 'performance',
   DEDUP: 'dedup',
   NOTIFICATION: 'notification',
+  /** Coach de comunidad: propuesta de audiencia, de comunidades y el plan del día. */
+  COMMUNITY: 'community',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];

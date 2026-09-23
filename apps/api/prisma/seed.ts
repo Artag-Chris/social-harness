@@ -7,6 +7,7 @@ import 'dotenv/config';
 import { ObjectiveMetric, Prisma, PrismaClient, SourceKind } from '@prisma/client';
 import { env } from '../src/config/env';
 import { DEMO_PROFILE } from './seed/profiles.data';
+import { DEMO_SEGMENTS } from './seed/audience.data';
 import { fixtureSources } from './seed/sources.data';
 
 /**
@@ -72,8 +73,31 @@ async function seedDemoProfile(): Promise<string> {
     });
   }
 
+  for (const segment of DEMO_SEGMENTS) {
+    const data = {
+      profileId: DEMO_PROFILE.id,
+      description: segment.description,
+      pains: [...segment.pains],
+      desires: [...segment.desires],
+      objections: [...segment.objections],
+      channels: [...segment.channels],
+      languageTips: segment.languageTips,
+      evidence: [...segment.evidence],
+      // `manual`: son "del usuario". Así el ejemplo muestra que una propuesta de IA no
+      // pisa lo que ya escribiste.
+      source: 'manual',
+      archivedAt: null,
+    };
+
+    await prisma.audienceSegment.upsert({
+      where: { profileId_name: { profileId: DEMO_PROFILE.id, name: segment.name } },
+      update: data,
+      create: { id: segment.id, name: segment.name, ...data },
+    });
+  }
+
   console.log(
-    `[seed] perfil "${DEMO_PROFILE.name}" listo (${DEMO_PROFILE.accounts.length} cuentas, ${DEMO_PROFILE.objectives.length} objetivos)`,
+    `[seed] perfil "${DEMO_PROFILE.name}" listo (${DEMO_PROFILE.accounts.length} cuentas, ${DEMO_PROFILE.objectives.length} objetivos, ${DEMO_SEGMENTS.length} segmentos de audiencia)`,
   );
 
   return DEMO_PROFILE.id;

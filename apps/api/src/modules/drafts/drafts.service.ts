@@ -6,6 +6,7 @@ import { JOB_OPTIONS, QUEUES } from '../../config/queue.config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AccessScope } from '../auth/access-scope.service';
 import type { AuthPayload } from '../auth/auth.types';
+import { CommunityService } from '../community/community.service';
 import { format, platform } from '../platforms/platforms.catalog';
 import { LLM_PROVIDER_TOKEN, type LlmProviderPort } from '../llm/llm-provider.port';
 import {
@@ -39,6 +40,7 @@ export class DraftsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: AccessScope,
+    private readonly community: CommunityService,
     @Inject(LLM_PROVIDER_TOKEN) private readonly llm: LlmProviderPort,
     @InjectQueue(QUEUES.DRAFT) private readonly draftQueue: Queue,
   ) {}
@@ -74,6 +76,10 @@ export class DraftsService {
       url: link.signal.canonicalUrl ?? link.signal.url,
     }));
 
+    // El borrador habla para UN segmento concreto (el mismo objeto que produce el coach de
+    // comunidad), no para "la audiencia".
+    const audienceSegments = await this.community.segmentsForPrompt(idea.profileId);
+
     const llmResult = await this.llm.json({
       system: buildDraftSystemPrompt(),
       user: buildDraftUserPrompt({
@@ -94,6 +100,7 @@ export class DraftsService {
           hashtags: idea.hashtags,
         },
         signals,
+        audienceSegments,
       }),
       schema: DraftContentSchema,
       hint: DRAFT_HINT,

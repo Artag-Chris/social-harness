@@ -6,6 +6,7 @@ import { JOB_OPTIONS, QUEUES } from '../../config/queue.config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AccessScope } from '../auth/access-scope.service';
 import type { AuthPayload } from '../auth/auth.types';
+import { CommunityService } from '../community/community.service';
 import { LLM_PROVIDER_TOKEN, type LlmProviderPort } from '../llm/llm-provider.port';
 import {
   buildAccountGrowth,
@@ -53,6 +54,7 @@ export class PerformanceService {
     private readonly prisma: PrismaService,
     private readonly access: AccessScope,
     private readonly notifications: NotificationsService,
+    private readonly community: CommunityService,
     @Inject(LLM_PROVIDER_TOKEN) private readonly llm: LlmProviderPort,
     @InjectQueue(QUEUES.PERFORMANCE) private readonly performanceQueue: Queue,
   ) {}
@@ -124,6 +126,8 @@ export class PerformanceService {
       measuredByCode: { POSTS_PER_WEEK: round(published.length / (days / 7), 2) },
     });
     const growthLines = formatGrowthForPrompt(growth);
+    // A quién le habla: las recomendaciones tienen que poder decir "para quién".
+    const audienceSegments = await this.community.segmentsForPrompt(profileId);
 
     const llmResult = await this.llm.json({
       system: buildPerformanceSystemPrompt(),
@@ -146,6 +150,7 @@ export class PerformanceService {
         })),
         topSignals: topSignals.map((row) => ({ title: row.signal.title, score: row.relevanceScore })),
         growth: growthLines,
+        audienceSegments,
       }),
       schema: PerformanceReportSchema,
       hint: PERFORMANCE_HINT,
