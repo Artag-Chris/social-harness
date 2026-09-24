@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CommunityController } from './community.controller';
 import { CommunityService } from './community.service';
+import { CommunityTargetsController } from './community-targets.controller';
 import { CommunityWorker } from './community.worker';
 
 /**
@@ -11,7 +12,7 @@ import { CommunityWorker } from './community.worker';
  * otros importan a este), así que no hay ciclos.
  */
 @Module({
-  controllers: [CommunityController],
+  controllers: [CommunityController, CommunityTargetsController],
   providers: [CommunityService, CommunityWorker],
   exports: [CommunityService],
 })

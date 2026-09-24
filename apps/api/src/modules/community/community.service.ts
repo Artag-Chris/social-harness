@@ -12,11 +12,24 @@ import type { AudienceSegmentsContent } from './community.prompt';
 import {
   AudienceSegmentsSchema,
   SEGMENTS_HINT,
+  TARGETS_HINT,
+  CommunityTargetsSchema,
   buildSegmentsSystemPrompt,
   buildSegmentsUserPrompt,
+  buildTargetsSystemPrompt,
+  buildTargetsUserPrompt,
   formatSegmentsForPrompt,
+  type CommunityTargetsContent,
 } from './community.prompt';
-import type { SegmentInput, SegmentListQuery, SegmentPatch } from './community.schema';
+import { guessCommunityKind } from './community.catalog';
+import type {
+  SegmentInput,
+  SegmentListQuery,
+  SegmentPatch,
+  TargetInput,
+  TargetListQuery,
+  TargetPatch,
+} from './community.schema';
 
 /**
  * Coach de comunidad — audiencia.
@@ -39,6 +52,14 @@ export interface ProposeSegmentsOutcome {
   archived: number;
   usedLlm: boolean;
   skipped?: string;
+}
+
+export interface ProposeTargetsOutcome {
+  profileId: string;
+  created: number;
+  skipped: number;
+  usedLlm: boolean;
+  skippedReason?: string;
 }
 
 @Injectable()
@@ -274,6 +295,235 @@ export class CommunityService {
     };
   }
 
+  // ── Comunidades: dónde participar ──────────────────────────────────────────
+
+  async listTargets(user: AuthPayload, profileId: string, query: TargetListQuery) {
+    await this.access.assertProfile(user, profileId);
+
+    return this.prisma.communityTarget.findMany({
+      where: { profileId, ...(query.status ? { status: query.status } : {}) },
+      orderBy: [{ audienceFit: 'desc' }, { createdAt: 'asc' }],
+      include: { segment: { select: { id: true, name: true } } },
+    });
+  }
+
+  /**
+   * Alta a mano.
+   *
+   * Nace `ACCEPTED` y verificada: si la cargó el usuario, existe (no hay nada que confirmar).
+   * Es el camino opuesto al de la propuesta de IA, que nace `PROPOSED` justamente porque
+   * puede estar equivocada.
+   */
+  async createTarget(user: AuthPayload, profileId: string, input: TargetInput) {
+    await this.access.assertProfile(user, profileId);
+
+    const data = {
+      kind: input.kind,
+      name: input.name,
+      url: input.url ?? null,
+      size: input.size ?? null,
+      activity: input.activity ?? null,
+      audienceFit: input.audienceFit,
+      why: input.why,
+      segmentId: input.segmentId ?? null,
+      notes: input.notes ?? null,
+      status: 'ACCEPTED',
+      source: 'manual',
+      verifiedAt: new Date(),
+    };
+
+    return this.prisma.communityTarget.upsert({
+      where: { profileId_kind_name: { profileId, kind: input.kind, name: input.name } },
+      update: data,
+      create: { profileId, ...data },
+    });
+  }
+
+  /**
+   * Aceptar, descartar, marcar como unido, verificar o corregir.
+   *
+   * Ojo con `source`: acá NO se toca. A diferencia de los segmentos (donde el origen decide
+   * si la IA puede archivarlo), en una comunidad el origen es información —"esto lo propuso
+   * el modelo", "esto lo cargaste vos"— y aceptar una propuesta no la convierte en tuya.
+   */
+  async patchTarget(user: AuthPayload, profileId: string, targetId: string, patch: TargetPatch) {
+    await this.access.assertProfile(user, profileId);
+
+    const target = await this.prisma.communityTarget.findFirst({
+      where: { id: targetId, profileId },
+      select: { id: true },
+    });
+    if (!target) throw new NotFoundException(`La comunidad ${targetId} no existe.`);
+
+    return this.prisma.communityTarget.update({
+      where: { id: targetId },
+      data: {
+        ...(patch.name === undefined ? {} : { name: patch.name }),
+        ...(patch.kind === undefined ? {} : { kind: patch.kind }),
+        ...(patch.url === undefined ? {} : { url: patch.url }),
+        ...(patch.size === undefined ? {} : { size: patch.size }),
+        ...(patch.activity === undefined ? {} : { activity: patch.activity }),
+        ...(patch.audienceFit === undefined ? {} : { audienceFit: patch.audienceFit }),
+        ...(patch.why === undefined ? {} : { why: patch.why }),
+        ...(patch.notes === undefined ? {} : { notes: patch.notes }),
+        ...(patch.segmentId === undefined ? {} : { segmentId: patch.segmentId }),
+        ...(patch.status === undefined ? {} : { status: patch.status }),
+        ...(patch.verified === undefined ? {} : { verifiedAt: patch.verified ? new Date() : null }),
+      },
+    });
+  }
+
+  async requestProposeTargets(profileId: string, segmentId?: string): Promise<void> {
+    await this.queue.add('targets-propose', { profileId, segmentId: segmentId ?? null }, JOB_OPTIONS);
+  }
+
+  async runProposeTargets(profileId: string, segmentId?: string | null): Promise<ProposeTargetsOutcome> {
+    const profile = await this.prisma.profile.findUnique({
+      where: { id: profileId },
+      select: { id: true, name: true, niche: true, language: true },
+    });
+
+    if (!profile) {
+      return { profileId, created: 0, skipped: 0, usedLlm: false, skippedReason: 'El perfil no existe.' };
+    }
+
+    // Las comunidades se deducen de la audiencia: sin segmentos no hay de dónde sacarlas.
+    const segments = await this.prisma.audienceSegment.findMany({
+      where: { profileId, archivedAt: null, ...(segmentId ? { id: segmentId } : {}) },
+      select: { id: true, name: true, description: true, channels: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    if (segments.length === 0) {
+      await this.notifyQuietly(profileId, {
+        title: `No hay audiencia para ${profile.name}`,
+        body:
+          'El coach de comunidad propone lugares a partir de tus segmentos. Proponé o escribí al menos ' +
+          'uno en la pestaña Comunidad y volvé a intentar.',
+      });
+
+      return {
+        profileId,
+        created: 0,
+        skipped: 0,
+        usedLlm: false,
+        skippedReason: 'No hay segmentos de audiencia activos.',
+      };
+    }
+
+    const existing = await this.prisma.communityTarget.findMany({
+      where: { profileId },
+      select: { kind: true, name: true },
+    });
+
+    const llmResult = await this.llm.json({
+      system: buildTargetsSystemPrompt(),
+      user: buildTargetsUserPrompt({
+        profile: { name: profile.name, niche: profile.niche, language: profile.language },
+        segments: segments.map((segment) => ({
+          name: segment.name,
+          description: segment.description,
+          channels: segment.channels,
+        })),
+        existing: existing.map((target) => `${target.kind}: ${target.name}`),
+      }),
+      schema: CommunityTargetsSchema,
+      hint: TARGETS_HINT,
+      task: 'community-targets',
+    });
+
+    const content: CommunityTargetsContent = llmResult
+      ? normalizeTargets(llmResult.data)
+      : templateTargets(segments);
+    const source = llmResult ? 'ia' : 'plantilla';
+
+    if (content.targets.length === 0) {
+      await this.notifyQuietly(profileId, {
+        title: `Sin lugares para proponer en ${profile.name}`,
+        body:
+          'La plantilla sin IA saca las comunidades de los canales que ya declaraste en tus segmentos, y ' +
+          'no hay ninguno. Agregá canales a un segmento o cargá la comunidad a mano.',
+      });
+
+      return {
+        profileId,
+        created: 0,
+        skipped: 0,
+        usedLlm: llmResult !== null,
+        skippedReason: 'La propuesta quedó vacía.',
+      };
+    }
+
+    let created = 0;
+    let skipped = 0;
+
+    for (const target of content.targets) {
+      const unique = { profileId, kind: target.kind, name: target.name };
+
+      // Una comunidad ya conocida NO se pisa: puede estar aceptada, descartada o con notas.
+      const already = await this.prisma.communityTarget.findUnique({
+        where: { profileId_kind_name: unique },
+        select: { id: true },
+      });
+      if (already) {
+        skipped += 1;
+        continue;
+      }
+
+      const segment = target.segmentName
+        ? segments.find((row) => row.name === target.segmentName)
+        : undefined;
+
+      try {
+        await this.prisma.communityTarget.create({
+          data: {
+            profileId,
+            kind: target.kind,
+            name: target.name,
+            url: target.url || null,
+            size: target.size || null,
+            activity: target.activity || null,
+            audienceFit: target.audienceFit,
+            why: target.why,
+            segmentId: segment?.id ?? null,
+            status: 'PROPOSED',
+            source,
+          },
+        });
+        created += 1;
+      } catch (error) {
+        // Carrera entre dos propuestas simultáneas: el único decide, no es un error.
+        if (!isUniqueViolation(error)) throw error;
+        skipped += 1;
+      }
+    }
+
+    if (llmResult) {
+      await this.prisma.coachRun.create({
+        data: {
+          profileId,
+          job: 'community-targets',
+          model: llmResult.meta.model,
+          tokensIn: llmResult.meta.usage.inputTokens,
+          tokensOut: llmResult.meta.usage.outputTokens,
+          costUsd: llmResult.meta.costUsd,
+          latencyMs: llmResult.meta.latencyMs,
+        },
+      });
+    }
+
+    await this.notifyQuietly(profileId, {
+      title: `Comunidades propuestas para ${profile.name}`,
+      body:
+        `${created} lugar(es) para revisar en la pestaña Comunidad` +
+        (skipped > 0 ? ` (${skipped} ya los tenías)` : '') +
+        '. Están SIN VERIFICAR: confirmá que existan antes de usarlos. ' +
+        (llmResult ? '' : 'Armado con la plantilla (no hay proveedor de IA).'),
+    });
+
+    return { profileId, created, skipped, usedLlm: llmResult !== null };
+  }
+
   /** El aviso es un extra: no puede tumbar la propuesta ya guardada. */
   private async notifyQuietly(profileId: string, content: { title: string; body: string }): Promise<void> {
     try {
@@ -337,4 +587,64 @@ export function templateSegments(profile: {
       },
     ],
   };
+}
+
+/**
+ * Respaldo sin IA de las comunidades: usa los canales que la audiencia YA declaró.
+ *
+ * Es el mejor respaldo posible justamente porque no inventa nada: si el segmento dice
+ * "r/artificial", ese lugar lo escribió el usuario. El tipo se deduce del nombre
+ * (`guessCommunityKind`) y el `why` dice de dónde salió, no una razón fabricada.
+ */
+export function templateTargets(
+  segments: Array<{ name: string; channels: string[] }>,
+): CommunityTargetsContent {
+  const seen = new Set<string>();
+  const targets: CommunityTargetsContent['targets'] = [];
+
+  for (const segment of segments) {
+    for (const channel of segment.channels) {
+      const name = channel.trim();
+      if (name.length < 3) continue;
+
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      targets.push({
+        name,
+        kind: guessCommunityKind(name),
+        url: '',
+        size: '',
+        activity: '',
+        audienceFit: 60,
+        why: `Ya lo declaraste como un lugar donde está «${segment.name}». El próximo paso es confirmar que sigue activo.`,
+        segmentName: segment.name,
+      });
+    }
+  }
+
+  return { targets: targets.slice(0, 10) };
+}
+
+function normalizeTargets(raw: CommunityTargetsContent): CommunityTargetsContent {
+  return {
+    targets: raw.targets.map((target) => ({
+      ...target,
+      name: target.name.trim().slice(0, 160),
+      url: target.url ?? '',
+      size: target.size ?? '',
+      activity: target.activity ?? '',
+      segmentName: target.segmentName ?? '',
+    })),
+  };
+}
+
+/** Prisma marca el choque contra un índice único con el código P2002. */
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: string }).code === 'P2002'
+  );
 }

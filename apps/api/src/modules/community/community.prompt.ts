@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CommunityKindSchema } from './community.catalog';
 
 /**
  * Prompt y contrato de la propuesta de audiencia.
@@ -132,4 +133,99 @@ export function formatSegmentsForPrompt(
     if (segment.languageTips) lines.push(`  cómo le habla: ${segment.languageTips}`);
     return lines.join('\n');
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Comunidades: dónde participar
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Propuesta de comunidades.
+ *
+ * El riesgo acá es distinto al de la audiencia: un segmento mal descrito se corrige, pero una
+ * comunidad **inventada** manda al usuario a buscar un subreddit que no existe. Por eso el
+ * prompt es explícito en "si no estás seguro, no lo pongas", todo nace `PROPOSED`, y el
+ * `url` y el `size` son opcionales (mejor vacío que falso).
+ */
+export const CommunityTargetsSchema = z.object({
+  targets: z
+    .array(
+      z.object({
+        name: z.string().min(3).max(160),
+        kind: CommunityKindSchema,
+        /// Vacío si el modelo no está seguro de la URL exacta.
+        url: z.string().max(500).default(''),
+        size: z.string().max(80).default(''),
+        activity: z.string().max(80).default(''),
+        audienceFit: z.number().int().min(0).max(100),
+        why: z.string().min(20).max(600),
+        /// El segmento al que apunta, por nombre (tiene que ser uno de los que le pasé).
+        segmentName: z.string().max(120).default(''),
+      }),
+    )
+    .min(1)
+    .max(10),
+});
+
+export type CommunityTargetsContent = z.infer<typeof CommunityTargetsSchema>;
+
+export const TARGETS_HINT = `{
+  "targets": [
+    {
+      "name": "nombre del lugar (subreddit, grupo, canal, hashtag)",
+      "kind": "REDDIT | FACEBOOK_GROUP | DISCORD | TELEGRAM | FORO | HASHTAG | CANAL | NEWSLETTER | OTRO",
+      "url": "solo si estás seguro de la dirección; si no, dejalo vacío",
+      "size": "tamaño si lo sabés (ej. '12k miembros'); si no, vacío",
+      "activity": "alta | media | baja (si lo sabés)",
+      "audienceFit": 0,
+      "why": "por qué ESA gente está ahí y por qué te conviene entrar",
+      "segmentName": "el nombre exacto del segmento al que le sirve"
+    }
+  ]
+}`;
+
+export interface TargetsPromptInput {
+  profile: { name: string; niche: string[]; language: string };
+  /** Segmentos activos: la propuesta sale de dónde está ESA gente. */
+  segments: Array<{ name: string; description: string; channels: string[] }>;
+  /** Comunidades que el perfil ya tiene (para no repetirlas). */
+  existing: string[];
+}
+
+export function buildTargetsSystemPrompt(): string {
+  return [
+    'Sos un estratega de comunidad. Te paso un perfil con sus segmentos de audiencia y tenés que proponer dónde participar: subreddits, grupos, foros, canales, hashtags.',
+    'REGLA CRÍTICA: proponé lugares que EXISTAN. Si no estás seguro de que un grupo o canal con ese nombre exacto exista, no lo propongas. Una lista corta y real vale más que una larga e inventada: el usuario va a perder tiempo buscando algo que no está.',
+    'Si no estás seguro de la URL, dejalá vacía. Si no sabés el tamaño, dejalo vacío. Nada de números inventados.',
+    'Cada propuesta tiene que decir por qué ESA gente está ahí: "es un grupo grande" no sirve; "ahí preguntan justo lo que vos resolvés" sí.',
+    'Distingui el encaje: no todas pueden ser 90. Usá el rango completo y reservá los números altos para las mejores.',
+    'En `segmentName` poné el nombre EXACTO de uno de los segmentos que te paso.',
+    'Escribí en español de LatAm, sin tono de agencia.',
+  ].join('\n');
+}
+
+export function buildTargetsUserPrompt(input: TargetsPromptInput): string {
+  const { profile, segments, existing } = input;
+
+  const segmentLines = segments
+    .map((segment) => {
+      const channels = segment.channels.length > 0 ? `\n  dónde está (ya declarado): ${segment.channels.join('; ')}` : '';
+      return `- ${segment.name}: ${segment.description}${channels}`;
+    })
+    .join('\n');
+
+  return [
+    `Perfil: ${profile.name}`,
+    `Nicho: ${profile.niche.length > 0 ? profile.niche.join(', ') : 'sin declarar'}`,
+    `Idioma: ${profile.language}`,
+    '',
+    existing.length > 0 ? `Comunidades que YA tiene (no las repitas): ${existing.join(' | ')}` : '',
+    '',
+    'Sus segmentos de audiencia:',
+    segmentLines,
+    '',
+    'Proponé de 3 a 6 lugares donde participar, priorizando los que ya aparecen en «dónde está» de cada segmento (si están ahí, están de verdad).',
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
 }

@@ -146,6 +146,7 @@ model Profile {
   coachRuns        CoachRun[]
   notifications    Notification[]
   audienceSegments AudienceSegment[]
+  communityTargets CommunityTarget[]
 
   @@index([ownerId])
   @@index([businessId])
@@ -185,8 +186,53 @@ model AudienceSegment {
 
   profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
+  targets CommunityTarget[]
+
   @@unique([profileId, name])
   @@index([profileId, archivedAt])
+}
+
+/// Comunidad donde participar: subreddit, grupo de Facebook, Discord, foro, hashtag, canal.
+///
+/// Dos decisiones que la gobiernan:
+///  - **`kind` es texto** (validado con Zod contra `community.catalog.ts`), no un enum de
+///    Postgres: las plataformas de comunidad nacen y mueren cada año y sumar una no debe
+///    costar una migración (misma razón que las redes).
+///  - **Nace `PROPOSED`**: un modelo puede inventar un subreddit que no existe. La
+///    verificación es humana (`verifiedAt`) y la UI lo dice; una propuesta sin verificar no
+///    es un hecho.
+model CommunityTarget {
+  id        String  @id @default(cuid())
+  profileId String
+  /// Clave del catálogo de comunidades (REDDIT, FACEBOOK_GROUP, DISCORD, HASHTAG…).
+  kind      String
+  name      String
+  url       String?
+  /// "12k miembros" / "alta actividad": texto a propósito — el modelo no inventa un número
+  /// exacto y un texto no se lee como un dato verificado.
+  size     String?
+  activity String?
+  /// 0–100: qué tan bien encaja con el segmento. Lo propone la IA y lo puede corregir el humano.
+  audienceFit Int     @default(0)
+  /// Por qué encaja ESTA comunidad con ESE segmento (lo que la vuelve defendible).
+  why         String
+  segmentId   String?
+  /// `PROPOSED` | `ACCEPTED` | `DISCARDED` | `JOINED`
+  status      String  @default("PROPOSED")
+  /// `ia` | `manual` | `plantilla` — misma regla que en la audiencia: no disfrazar.
+  source      String  @default("ia")
+  notes       String?
+  /// El humano confirmó que existe y que es el lugar correcto.
+  verifiedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile Profile          @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  segment AudienceSegment? @relation(fields: [segmentId], references: [id], onDelete: SetNull)
+
+  @@unique([profileId, kind, name])
+  @@index([profileId, status])
 }
 
 /// Una cuenta social del perfil (Instagram / TikTok / YouTube / LinkedIn). Un

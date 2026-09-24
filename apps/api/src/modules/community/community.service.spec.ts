@@ -3,7 +3,7 @@ import type { Queue } from 'bullmq';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { LlmProviderPort } from '../llm/llm-provider.port';
 import { formatSegmentsForPrompt } from './community.prompt';
-import { CommunityService } from './community.service';
+import { CommunityService, templateTargets } from './community.service';
 
 /**
  * Las reglas que se prueban acá son las de convivencia entre el humano y la IA:
@@ -42,6 +42,14 @@ function build(options: { llmNull?: boolean; profile?: unknown; segments?: unkno
       upsert: vi.fn().mockImplementation((args: { create: unknown }) => Promise.resolve(args.create)),
       update: vi.fn().mockImplementation((args: { data: unknown }) => Promise.resolve(args.data)),
       updateMany: vi.fn().mockResolvedValue({ count: 2 }),
+    },
+    communityTarget: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
+      findFirst: vi.fn().mockResolvedValue({ id: 't-1' }),
+      create: vi.fn().mockImplementation((args: { data: unknown }) => Promise.resolve(args.data)),
+      update: vi.fn().mockImplementation((args: { data: unknown }) => Promise.resolve(args.data)),
+      upsert: vi.fn().mockImplementation((args: { create: unknown }) => Promise.resolve(args.create)),
     },
     coachRun: { create: vi.fn().mockResolvedValue({}) },
   };
@@ -193,6 +201,136 @@ describe('CommunityService: propuesta de audiencia', () => {
     await service.requestPropose('p-1');
 
     expect(queue.add).toHaveBeenCalledWith('segments-propose', { profileId: 'p-1' }, expect.anything());
+  });
+});
+
+const SEGMENT = {
+  id: 'seg-1',
+  name: 'Dueño de pyme que hace todo solo',
+  description: 'Sin equipo de marketing.',
+  channels: ['r/pequenasempresas'],
+};
+
+const TARGET_META = {
+  text: '',
+  provider: 'deepseek',
+  model: 'deepseek-chat',
+  usage: { inputTokens: 800, outputTokens: 400, cachedInputTokens: 0 },
+  costUsd: 0.0004,
+  latencyMs: 6000,
+};
+
+describe('CommunityService: comunidades', () => {
+  it('sin audiencia cargada no propone lugares y lo dice', async () => {
+    const { service, llm, notifications } = build();
+
+    const outcome = await service.runProposeTargets('p-1');
+
+    expect(outcome).toMatchObject({ created: 0, usedLlm: false });
+    expect(outcome.skippedReason).toContain('No hay segmentos');
+    expect(llm.json).not.toHaveBeenCalled();
+    expect(notifications.notify).toHaveBeenCalled();
+  });
+
+  it('propone lugares atados al segmento y registra el gasto', async () => {
+    const { service, llm, prisma } = build({ segments: [SEGMENT] });
+    llm.json = vi.fn().mockResolvedValue({
+      data: {
+        targets: [
+          {
+            name: 'r/pequenasempresas',
+            kind: 'REDDIT',
+            url: 'https://reddit.com/r/pequenasempresas',
+            size: '',
+            activity: 'media',
+            audienceFit: 85,
+            why: 'Ahí preguntan justo lo que el segmento necesita resolver.',
+            segmentName: 'Dueño de pyme que hace todo solo',
+          },
+        ],
+      },
+      meta: TARGET_META,
+    }) as never;
+
+    const outcome = await service.runProposeTargets('p-1');
+
+    expect(outcome).toMatchObject({ created: 1, usedLlm: true });
+    const data = prisma.communityTarget.create.mock.calls[0]?.[0].data;
+    // Nace PROPOSED: una propuesta sin verificar no es un hecho.
+    expect(data).toMatchObject({ kind: 'REDDIT', status: 'PROPOSED', source: 'ia', segmentId: 'seg-1' });
+    expect(prisma.coachRun.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ job: 'community-targets' }) }),
+    );
+  });
+
+  it('no pisa una comunidad que ya tenés (aunque la vuelva a proponer)', async () => {
+    const { service, llm, prisma } = build({ segments: [SEGMENT] });
+    llm.json = vi.fn().mockResolvedValue({
+      data: {
+        targets: [
+          {
+            name: 'r/pequenasempresas',
+            kind: 'REDDIT',
+            url: '',
+            size: '',
+            activity: '',
+            audienceFit: 70,
+            why: 'Porque ahí está la audiencia y ya la conocés.',
+            segmentName: 'Dueño de pyme que hace todo solo',
+          },
+        ],
+      },
+      meta: TARGET_META,
+    }) as never;
+    // Ya existe: puede estar aceptada, descartada o con notas del usuario.
+    prisma.communityTarget.findUnique.mockResolvedValue({ id: 't-1' });
+
+    const outcome = await service.runProposeTargets('p-1');
+
+    expect(outcome).toMatchObject({ created: 0, skipped: 1 });
+    expect(prisma.communityTarget.create).not.toHaveBeenCalled();
+  });
+
+  it('el alta a mano nace aceptada y verificada (el humano sabe que existe)', async () => {
+    const { service, prisma } = build();
+
+    await service.createTarget({ sub: 'u-1' } as never, 'p-1', {
+      name: 'Discord de IA de LatAm',
+      kind: 'DISCORD',
+      why: 'Ahí se juntan los que aplican IA en el día a día.',
+      audienceFit: 70,
+    });
+
+    const data = prisma.communityTarget.upsert.mock.calls[0]?.[0].create;
+    expect(data).toMatchObject({ status: 'ACCEPTED', source: 'manual' });
+    expect(data.verifiedAt).toBeInstanceOf(Date);
+  });
+
+  it('aceptar y verificar son cosas distintas, y el origen no se pisa', async () => {
+    const { service, prisma } = build();
+
+    await service.patchTarget({ sub: 'u-1' } as never, 'p-1', 't-1', {
+      status: 'ACCEPTED',
+      verified: true,
+    });
+
+    const data = prisma.communityTarget.update.mock.calls[0]?.[0].data;
+    expect(data.status).toBe('ACCEPTED');
+    expect(data.verifiedAt).toBeInstanceOf(Date);
+    // `source` no se toca: aceptar una propuesta no la convierte en tuya.
+    expect(data.source).toBeUndefined();
+  });
+
+  it('sin IA, los lugares salen de los canales que la audiencia ya declaró', () => {
+    const content = templateTargets([
+      { name: 'Segmento uno', channels: ['r/artificial', '#pymes', 'x'] },
+    ]);
+
+    expect(content.targets.map((target) => [target.name, target.kind])).toEqual([
+      ['r/artificial', 'REDDIT'],
+      ['#pymes', 'HASHTAG'],
+    ]);
+    expect(content.targets[0]?.why).toContain('Segmento uno');
   });
 });
 

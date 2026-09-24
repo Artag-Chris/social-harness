@@ -8,6 +8,7 @@ import { ObjectiveMetric, Prisma, PrismaClient, SourceKind } from '@prisma/clien
 import { env } from '../src/config/env';
 import { DEMO_PROFILE } from './seed/profiles.data';
 import { DEMO_SEGMENTS } from './seed/audience.data';
+import { DEMO_TARGETS } from './seed/community.data';
 import { fixtureSources } from './seed/sources.data';
 
 /**
@@ -96,8 +97,31 @@ async function seedDemoProfile(): Promise<string> {
     });
   }
 
+  for (const target of DEMO_TARGETS) {
+    const data = {
+      profileId: DEMO_PROFILE.id,
+      kind: target.kind,
+      name: target.name,
+      url: target.url,
+      size: target.size,
+      activity: target.activity,
+      audienceFit: target.audienceFit,
+      why: target.why,
+      segmentId: target.segmentId,
+      status: target.status,
+      source: 'manual',
+      verifiedAt: target.verified ? new Date() : null,
+    };
+
+    await prisma.communityTarget.upsert({
+      where: { profileId_kind_name: { profileId: DEMO_PROFILE.id, kind: target.kind, name: target.name } },
+      update: data,
+      create: { id: target.id, ...data },
+    });
+  }
+
   console.log(
-    `[seed] perfil "${DEMO_PROFILE.name}" listo (${DEMO_PROFILE.accounts.length} cuentas, ${DEMO_PROFILE.objectives.length} objetivos, ${DEMO_SEGMENTS.length} segmentos de audiencia)`,
+    `[seed] perfil "${DEMO_PROFILE.name}" listo (${DEMO_PROFILE.accounts.length} cuentas, ${DEMO_PROFILE.objectives.length} objetivos, ${DEMO_SEGMENTS.length} segmentos de audiencia, ${DEMO_TARGETS.length} comunidades)`,
   );
 
   return DEMO_PROFILE.id;
