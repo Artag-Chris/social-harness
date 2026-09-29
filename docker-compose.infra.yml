@@ -53,6 +53,9 @@ services:
       # Redis COMPARTIDA (el contenedor `redis` que ya existe en la red).
       REDIS_URL: redis://redis:6379
       REDIS_HOST: redis
+      # Solo en local: perfil de ejemplo + fuentes del fixture E2E. En el server no se define,
+      # así que la base queda vacía y el primer perfil lo crea el usuario desde el dashboard.
+      SEED_DEMO: "true"
       FIXTURE_ENABLED: "true"
       FIXTURE_BASE_URL: http://socialharness-fixture
     depends_on:

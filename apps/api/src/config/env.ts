@@ -135,8 +135,12 @@ const envSchema = z
     DEDUP_INTERVAL_MINUTES: z.coerce.number().int().min(1).default(720),
     ANALYZE_BATCH_SIZE: z.coerce.number().int().min(1).max(200).default(20),
 
-    // ── Notificaciones / fixture ──────────────────────────────────────────
+    // ── Notificaciones / fixture / demo ───────────────────────────────────
     NOTIFY_CHANNELS: z.string().default('dashboard'),
+    // El perfil de ejemplo (y sus cuentas, objetivos, segmentos y comunidades) NO se siembra
+    // solo: en el server se quiere arrancar vacío y crear el perfil desde el dashboard. El
+    // compose local lo prende; el del server no lo define, así que allá no siembra nada.
+    SEED_DEMO: boolFromEnv('false'),
     FIXTURE_ENABLED: boolFromEnv('false'),
     FIXTURE_BASE_URL: z
       .string()

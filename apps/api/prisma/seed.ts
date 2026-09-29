@@ -1,7 +1,11 @@
 /**
- * Seed idempotente — corre en CADA boot del contenedor, después de
- * `migrate deploy`. Se puede ejecutar las veces que haga falta: todo es upsert
- * por id fijo, así que no duplica nada.
+ * Seed del perfil de ejemplo — **opt-in** (`SEED_DEMO=true`), porque corre en CADA boot del
+ * contenedor después de `migrate deploy`.
+ *
+ * Antes sembraba siempre y, como es idempotente por id fijo, volvía a crear el perfil de demo
+ * apenas se lo borraba: quien quería arrancar de cero se lo encontraba de nuevo. Ahora, sin la
+ * variable, no toca nada (y lo dice en el log). Cuando está prendido, todo es upsert: se puede
+ * correr las veces que haga falta sin duplicar.
  */
 import 'dotenv/config';
 import { ObjectiveMetric, Prisma, PrismaClient, SourceKind } from '@prisma/client';
@@ -161,6 +165,14 @@ async function seedFixtureSources(profileId: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  if (!env.SEED_DEMO) {
+    console.log(
+      '[seed] SEED_DEMO=false: no se siembra nada (el perfil lo creás vos desde el dashboard). ' +
+        'Poné SEED_DEMO=true si querés el perfil de ejemplo con sus cuentas, objetivos y comunidades.',
+    );
+    return;
+  }
+
   const profileId = await seedDemoProfile();
 
   if (env.FIXTURE_ENABLED) {
